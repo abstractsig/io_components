@@ -9,6 +9,7 @@
 #include <io_core.h>
 #include <io_graphics.h>
 
+
 #define SSD1306_IO_GRAPHICS_CONTEXT_STRUCT_MEMBERS \
 	IO_GRAPHICS_CONTEXT_STRUCT_MEMBERS \
 	io_t *io; \
@@ -18,6 +19,7 @@
 	uint32_t height_in_pixels; \
 	uint32_t width_in_pixels; \
 	uint8_t *oled_pixels; \
+	io_graphics_command_stack_t *stack;\
 	/**/
 
 typedef struct PACK_STRUCTURE ssd1306_io_graphics_context {
@@ -48,6 +50,8 @@ static io_colour_t ssd1306_io_graphics_context_get_drawing_colour (io_graphics_c
 static void ssd1306_io_graphics_context_draw_pixel (io_graphics_context_t*,io_i32_point_t);
 static void ssd1306_io_graphics_context_fill_rectangle (io_graphics_context_t*,io_i32_point_t,io_i32_point_t);
 static void ssd1306_io_graphics_context_render_spi (io_graphics_context_t*);
+static void ssd1306_io_graphics_context_begin (io_graphics_context_t*);
+static void ssd1306_io_graphics_context_run (io_graphics_context_t*);
 
 #define cast_to_ssd1306_context(gfx) (ssd1306_io_graphics_context_t*) (gfx)
 
@@ -62,17 +66,13 @@ EVENT_DATA io_graphics_context_implementation_t ssd1306_graphics_context_impleme
 	.fill_rectangle = ssd1306_io_graphics_context_fill_rectangle,
 	.draw_pixel = ssd1306_io_graphics_context_draw_pixel,
 	.draw_character = io_graphics_context_draw_character_with_current_font,
-	.draw_ascii_text = io_graphics_context_draw_draw_ascii_text_base,
-	.draw_circle = io_graphics_context_circle,
-	.draw_filled_circle = io_graphics_context_fill_circle,
-	.draw_line = io_graphics_context_one_pixel_line,
-	.draw_rectangle = io_graphics_context_draw_rectangle_base,
-	.draw_filled_rectangle = io_graphics_context_draw_filled_rectangle_base,
 	.get_pixel_height = ssd1306_io_graphics_context_get_height_in_pixels,
 	.get_pixel_width = ssd1306_io_graphics_context_get_width_in_pixels,
-	.render = ssd1306_io_graphics_context_render_spi,
 	.set_gamma_correction = ssd1306_io_graphics_context_set_gamma_correction,
 	.get_gamma_correction = ssd1306_io_graphics_context_get_gamma_correction,
+	.begin = ssd1306_io_graphics_context_begin,
+	.run = ssd1306_io_graphics_context_run,
+	.render = ssd1306_io_graphics_context_render_spi,
 };
 
 io_graphics_context_t*
@@ -90,7 +90,7 @@ initialise_ssd1306_io_graphics_context (
 	this->initialised = 0;
 	this->current_drawing_colour = IO_WHITE_1BIT_MONOCHROME;
 	
-	this->oled_pixels = io_byte_memory_allocate (
+	this->oled_pixels = io_byte_memory_allocate_and_zero (
 		io_get_byte_memory (io),(
 				(this->width_in_pixels * this->height_in_pixels)
 			/	8
@@ -219,6 +219,22 @@ ssd1306_io_graphics_context_draw_pixel (
 	}
 }
 
+static void
+ssd1306_io_graphics_context_begin (io_graphics_context_t *gfx) {
+	ssd1306_io_graphics_context_t *this = (ssd1306_io_graphics_context_t*) gfx;
+	reset_io_graphics_command_stack (this->stack);
+}
+
+static void
+ssd1306_io_graphics_context_run (io_graphics_context_t *gfx) {
+	ssd1306_io_graphics_context_t *this = (ssd1306_io_graphics_context_t*) gfx;
+	io_graphics_command_t **cursor = io_graphics_command_stack_begin(this->stack);
+	
+	while (cursor < io_graphics_command_stack_end(this->stack)) {
+		run_io_graphics_command (*cursor++,gfx);
+	}
+}
+
 void
 ssd1306_io_graphics_context_render_spi (io_graphics_context_t *gfx) {
 	// to be the spi version ...
@@ -251,17 +267,13 @@ EVENT_DATA io_graphics_context_implementation_t ssd1306_graphics_context_twi_imp
 	.fill_rectangle = ssd1306_io_graphics_context_fill_rectangle,
 	.draw_pixel = ssd1306_io_graphics_context_draw_pixel,
 	.draw_character = io_graphics_context_draw_character_with_current_font,
-	.draw_ascii_text = io_graphics_context_draw_draw_ascii_text_base,
-	.draw_circle = io_graphics_context_circle,
-	.draw_filled_circle = io_graphics_context_fill_circle,
-	.draw_line = io_graphics_context_one_pixel_line,
-	.draw_rectangle = io_graphics_context_draw_rectangle_base,
-	.draw_filled_rectangle = io_graphics_context_draw_filled_rectangle_base,
 	.get_pixel_height = ssd1306_io_graphics_context_get_height_in_pixels,
 	.get_pixel_width = ssd1306_io_graphics_context_get_width_in_pixels,
-	.render = ssd1306_io_graphics_context_render_twi,
 	.set_gamma_correction = ssd1306_io_graphics_context_set_gamma_correction,
 	.get_gamma_correction = ssd1306_io_graphics_context_get_gamma_correction,
+	.begin = ssd1306_io_graphics_context_begin,
+	.run = ssd1306_io_graphics_context_run,
+	.render = ssd1306_io_graphics_context_render_twi,
 };
 
 //#define SSD1306_EXTERNALVCC				0x1
@@ -303,13 +315,13 @@ EVENT_DATA io_graphics_context_implementation_t ssd1306_graphics_context_twi_imp
 #define SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL	0x2A
 
 // extra commands .. consider using a uint16_t!
-#define SSD1306_HEIGHT						0xf0
+#define X_SSD1306_HEIGHT						0xf0
 
 const uint8_t startup_commands[] = {
 	SSD1306_DISPLAYOFF,
 	SSD1306_SETDISPLAYCLOCKDIV,
 	SSD1306_SETMULTIPLEX,
-	SSD1306_HEIGHT,
+	X_SSD1306_HEIGHT,
 	SSD1306_SETDISPLAYOFFSET,
 	0,
 	SSD1306_SETSTARTLINE | 0x0,
@@ -358,14 +370,13 @@ ssd1306_io_graphics_context_twi_command_complete (io_event_t *ev) {
 
 	if (this->current_command < this->end_of_command_sequence) {
 		uint8_t cmd = *this->current_command++;
-		if (cmd == SSD1306_HEIGHT) {
+		if (cmd == X_SSD1306_HEIGHT) {
 			cmd = this->height_in_pixels - 1;
 		}
 		ssd1306_command (this->ssd1306_socket,cmd);
 	} else {
 		display_init_done ();
 	}
-	
 }
 
 static void
@@ -389,11 +400,7 @@ void
 ssd1306_io_graphics_context_render_twi (io_graphics_context_t *gfx) {
 	ssd1306_io_graphics_context_twi_t *this = (ssd1306_io_graphics_context_twi_t*) (gfx);
 	
-	if (!this->initialised) {
-		ssd1306_io_graphics_context_initialise_twi (this);
-		if (!this->initialised) {
-			return;
-		}
+	if (this->initialised) {
 	}
 /*
 		// frame size must match display size for now...
@@ -446,6 +453,7 @@ mk_ssd1306_io_graphics_context_twi (
 	if (this) {
 		this->implementation = &ssd1306_graphics_context_twi_implementation;
 		this->bus_address = bus_address;
+		this->current_command = NULL;
 		
 		initialise_io_event (
 			&this->command_complete,ssd1306_io_graphics_context_twi_command_complete,this
