@@ -27,16 +27,14 @@ typedef struct PACK_STRUCTURE ssd1306_io_graphics_context {
 } ssd1306_io_graphics_context_t;
 
 
-io_graphics_context_t* mk_ssd1306_io_graphics_context (io_t*,io_socket_t*,uint32_t,uint32_t);
-io_graphics_context_t* mk_ssd1306_io_graphics_context_twi (io_t*,io_socket_t*,uint32_t,uint32_t,uint32_t);
+io_graphics_context_t* mk_ssd1306_io_graphics_context (io_t*,io_socket_t*,uint32_t,uint32_t,uint32_t);
+io_graphics_context_t* mk_ssd1306_io_graphics_context_twi (io_t*,io_socket_t*,uint32_t,uint32_t,uint32_t,uint32_t);
 
 
 #ifdef IMPLEMENT_IO_COMPONENT_GRAPHICS_SSD1306
 //-----------------------------------------------------------------------------
 //
-// mplementtaion
-//
-// check samd_ssd1306_i2c_driver.c
+// implementtaion
 //
 //-----------------------------------------------------------------------------
 
@@ -81,7 +79,8 @@ initialise_ssd1306_io_graphics_context (
 	io_t *io,
 	io_socket_t *ssd,
 	uint32_t pixel_width,
-	uint32_t pixel_height
+	uint32_t pixel_height,
+	uint32_t stack_length
 ) {
 	this->io = io;
 	this->ssd1306_socket = ssd;
@@ -90,24 +89,18 @@ initialise_ssd1306_io_graphics_context (
 	this->initialised = 0;
 	this->current_drawing_colour = IO_WHITE_1BIT_MONOCHROME;
 	
-	this->oled_pixels = io_byte_memory_allocate_and_zero (
-		io_get_byte_memory (io),(
-				(this->width_in_pixels * this->height_in_pixels)
-			/	8
-		)
+	this->stack = mk_io_graphics_command_stack (
+		io_get_byte_memory (io),stack_length
 	);
-
-	if (this->oled_pixels == NULL) {
-		io_byte_memory_free (io_get_byte_memory (io),this);
-		this = NULL;
-	}
+	
+	this->oled_pixels = NULL;
 	
 	return (io_graphics_context_t*) this;
 }
 
 io_graphics_context_t*
 mk_ssd1306_io_graphics_context (
-	io_t *io,io_socket_t *ssd,uint32_t pixel_width,uint32_t pixel_height
+	io_t *io,io_socket_t *ssd,uint32_t pixel_width,uint32_t pixel_height,uint32_t stack_length
 ) {
 	ssd1306_io_graphics_context_t *this = io_byte_memory_allocate (
 		io_get_byte_memory (io),sizeof (ssd1306_io_graphics_context_t)
@@ -116,7 +109,7 @@ mk_ssd1306_io_graphics_context (
 	if (this) {
 		this->implementation = &ssd1306_graphics_context_implementation;
 		return initialise_ssd1306_io_graphics_context (
-			this,io,ssd,pixel_width,pixel_height
+			this,io,ssd,pixel_width,pixel_height,stack_length
 		);
 	} else {
 		return NULL;
@@ -129,7 +122,7 @@ free_ssd1306_io_graphics_context (io_graphics_context_t *gfx) {
 	
 	io_socket_close (this->ssd1306_socket);
 	
-	io_byte_memory_free (io_get_byte_memory (this->io),this->oled_pixels);
+//	io_byte_memory_free (io_get_byte_memory (this->io),this->oled_pixels);
 	io_byte_memory_free (io_get_byte_memory (this->io),this);
 }
 
@@ -178,8 +171,8 @@ static void
 ssd1306_io_graphics_context_fill_rectangle (
 	io_graphics_context_t *gfx,io_i32_point_t p1,io_i32_point_t p2
 ) {
-	if (io_points_not_equal(p1,p2)) {
-		ssd1306_io_graphics_context_t *this = cast_to_ssd1306_context (gfx);
+	ssd1306_io_graphics_context_t *this = cast_to_ssd1306_context (gfx);
+	if (this->oled_pixels && io_points_not_equal(p1,p2)) {
 		int dx = p2.x - p1.x;
 		int dy = p2.y - p1.y;
 		int ix = dx < 0 ? -1 : 1;
@@ -193,9 +186,10 @@ ssd1306_io_graphics_context_fill_rectangle (
 		
 		do {
 			int x = p1.x;
-			int yy = (y * this->width_in_pixels);
+			int yy = (y/8 * this->width_in_pixels);
 			do {
-				this->oled_pixels[x/8 + yy] = colour << (x % 8);
+				this->oled_pixels[x + yy] &= ~(1 << (y % 8));
+				this->oled_pixels[x + yy] |= colour << (y % 8);
 				x += ix;
 			} while (x != xe);
 			y += iy;
@@ -207,15 +201,16 @@ static void
 ssd1306_io_graphics_context_draw_pixel (
 	io_graphics_context_t *gfx,io_i32_point_t pt
 ) {
+	ssd1306_io_graphics_context_t *this = cast_to_ssd1306_context (gfx);
 	if (
-			(pt.x >= 0 && pt.x < io_graphics_context_get_width_in_pixels(gfx))
+			this->oled_pixels
+		&&	(pt.x >= 0 && pt.x < io_graphics_context_get_width_in_pixels(gfx))
 		&&	(pt.y >= 0 && pt.y < io_graphics_context_get_height_in_pixels(gfx))
 	) {
-		ssd1306_io_graphics_context_t *this = cast_to_ssd1306_context (gfx);
 		uint8_t colour = io_colour_monochrome_level (
 			this->current_drawing_colour
 		);
-		this->oled_pixels[pt.x/8 + (pt.y * this->width_in_pixels)] = colour << (pt.x % 8);
+		this->oled_pixels[pt.x + (pt.y/8 * this->width_in_pixels)] = colour << (pt.y % 8);
 	}
 }
 
@@ -227,12 +222,6 @@ ssd1306_io_graphics_context_begin (io_graphics_context_t *gfx) {
 
 static void
 ssd1306_io_graphics_context_run (io_graphics_context_t *gfx) {
-	ssd1306_io_graphics_context_t *this = (ssd1306_io_graphics_context_t*) gfx;
-	io_graphics_command_t **cursor = io_graphics_command_stack_begin(this->stack);
-	
-	while (cursor < io_graphics_command_stack_end(this->stack)) {
-		run_io_graphics_command (*cursor++,gfx);
-	}
 }
 
 void
@@ -250,12 +239,18 @@ typedef struct PACK_STRUCTURE ssd1306_io_graphics_context_twi {
 	
 	io_event_t command_complete;
 	
-	uint8_t const *current_command;
-	uint8_t const *end_of_command_sequence;
-	
+	uint16_t const *current_command;
+	uint16_t const *end_of_command_sequence;
+	void (*end_of_command_action) (struct ssd1306_io_graphics_context_twi*);
 } ssd1306_io_graphics_context_twi_t;
 
 static void ssd1306_io_graphics_context_render_twi (io_graphics_context_t*);
+
+static io_graphics_command_stack_t*
+ssd1306_io_graphics_context_twi_get_command_stack (io_graphics_context_t *gfx) {
+	ssd1306_io_graphics_context_twi_t *this = (ssd1306_io_graphics_context_twi_t*) gfx;
+	return this->stack;
+}
 
 EVENT_DATA io_graphics_context_implementation_t ssd1306_graphics_context_twi_implementation = {
 	.free = free_ssd1306_io_graphics_context,
@@ -263,6 +258,7 @@ EVENT_DATA io_graphics_context_implementation_t ssd1306_graphics_context_twi_imp
 	.set_drawing_colour = ssd1306_io_graphics_context_set_drawing_colour,
 	.get_drawing_colour = ssd1306_io_graphics_context_get_drawing_colour,
 	.get_pixel = NULL,
+	.get_command_stack = ssd1306_io_graphics_context_twi_get_command_stack,
 	.fill = io_graphics_context_fill_with_colour,
 	.fill_rectangle = ssd1306_io_graphics_context_fill_rectangle,
 	.draw_pixel = ssd1306_io_graphics_context_draw_pixel,
@@ -315,11 +311,14 @@ EVENT_DATA io_graphics_context_implementation_t ssd1306_graphics_context_twi_imp
 #define SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL	0x2A
 
 // extra commands .. consider using a uint16_t!
-#define X_SSD1306_HEIGHT						0xf0
+#define X_SSD1306_HEIGHT						0x1f0
+#define X_SSD1306_HEIGHT_DIV_8				0x1f1
+#define X_SSD1306_WIDTH							0x1f2
 
-const uint8_t startup_commands[] = {
+static const uint16_t startup_commands[] = {
 	SSD1306_DISPLAYOFF,
 	SSD1306_SETDISPLAYCLOCKDIV,
+	0x80,
 	SSD1306_SETMULTIPLEX,
 	X_SSD1306_HEIGHT,
 	SSD1306_SETDISPLAYOFFSET,
@@ -328,7 +327,7 @@ const uint8_t startup_commands[] = {
 	SSD1306_CHARGEPUMP,
 	0x14,
 	SSD1306_MEMORYMODE,
-	0,
+	0,	// horizontal
 	SSD1306_SEGREMAP | 0x1,
 	SSD1306_COMSCANDEC,
 	SSD1306_SETCOMPINS,
@@ -342,11 +341,31 @@ const uint8_t startup_commands[] = {
 	SSD1306_DISPLAYALLON_RESUME,
 	SSD1306_NORMALDISPLAY,
 	SSD1306_DEACTIVATE_SCROLL,
-	SSD1306_DISPLAYON
+	SSD1306_DISPLAYON,
 };
 
-void
-display_init_done (void) {
+static void
+ssd1306_io_graphics_display_initialised (ssd1306_io_graphics_context_twi_t *this) {
+	this->initialised = 1;
+	
+	#if 0
+	// just testing
+	io_graphics_context_t *gfx = (io_graphics_context_t*) this;
+	io_graphics_context_begin (gfx);
+	io_graphics_stack_append_line (
+		io_graphics_context_get_command_stack(gfx),
+		def_i32_point(0,0),
+		def_i32_point(16,16)
+	);
+
+	io_graphics_stack_append_rectangle (
+		io_graphics_context_get_command_stack(gfx),
+		def_i32_point(32,0),def_i32_point(3,2),true
+	);
+	#endif
+	
+	// this clears display
+	io_graphics_context_render ((io_graphics_context_t*) this);
 }
 
 static void
@@ -369,13 +388,24 @@ ssd1306_io_graphics_context_twi_command_complete (io_event_t *ev) {
 	ssd1306_io_graphics_context_twi_t *this = ev->user_value;
 
 	if (this->current_command < this->end_of_command_sequence) {
-		uint8_t cmd = *this->current_command++;
-		if (cmd == X_SSD1306_HEIGHT) {
-			cmd = this->height_in_pixels - 1;
+		uint16_t cmd = *this->current_command++;
+		switch (cmd) {
+			case X_SSD1306_HEIGHT:
+				cmd = this->height_in_pixels - 1;
+			break;
+			
+			case X_SSD1306_HEIGHT_DIV_8:
+				cmd = (this->height_in_pixels/8) - 1;
+			break;
+			
+			case X_SSD1306_WIDTH:
+				cmd = this->width_in_pixels - 1;
+			break;
+
 		}
 		ssd1306_command (this->ssd1306_socket,cmd);
 	} else {
-		display_init_done ();
+		this->end_of_command_action (this);
 	}
 }
 
@@ -388,63 +418,71 @@ ssd1306_io_graphics_context_initialise_twi (ssd1306_io_graphics_context_twi_t *t
 		
 		this->current_command = startup_commands;
 		this->end_of_command_sequence = startup_commands + SIZEOF(startup_commands);
-
+		this->end_of_command_action = ssd1306_io_graphics_display_initialised;
+		
 		ssd1306_command (twi,*this->current_command++);
-
-		// at end of sequence?
-		this->initialised = 1;
 	}
 }
 
-void
+static void
+ssd1306_io_graphics_end_of_pixels (ssd1306_io_graphics_context_twi_t *this) {
+}
+
+static void
 ssd1306_io_graphics_context_render_twi (io_graphics_context_t *gfx) {
 	ssd1306_io_graphics_context_twi_t *this = (ssd1306_io_graphics_context_twi_t*) (gfx);
-	
-	if (this->initialised) {
-	}
-/*
-		// frame size must match display size for now...
+	io_socket_t *twi = this->ssd1306_socket;
+	io_encoding_t *message = io_socket_new_message (twi);
 
-		ssd1306_command (phy,SSD1306_COLUMNADDR);
-		ssd1306_command (phy,0);
-		ssd1306_command (phy,frame->size.width - 1);
+	if (message) {
+		io_twi_transfer_t *cmd  = io_encoding_get_get_rw_header (message);
+		uint32_t size = (this->width_in_pixels * this->height_in_pixels/8);
+		io_twi_transfer_rx_length(cmd) = 0;
 
-		ssd1306_command (phy,SSD1306_PAGEADDR);
-		ssd1306_command (phy,0); // Page start address (0 = reset)
-		ssd1306_command (phy,(frame->size.height/8) - 1); // Page end address
-
-		phy->registers->ADDR.bit.ADDR = (phy->i2c_address << 1) | I2C_WRITE;
-		while (phy->registers->INTFLAG.bit.MB == 0);
+		io_binary_encoding_append_byte (message,0x80);
+		io_binary_encoding_append_byte (message,SSD1306_COLUMNADDR);
 		
-		phy->registers->DATA.reg = 0x40;	// Co = 0, D/C = 1
-		while (phy->registers->INTFLAG.bit.MB == 0);
+		io_binary_encoding_append_byte (message,0x80);
+		io_binary_encoding_append_byte (message,0x00);
+		
+		io_binary_encoding_append_byte (message,0x80);
+		io_binary_encoding_append_byte (message,this->width_in_pixels - 1);
 
-		#if 0
+		io_binary_encoding_append_byte (message,0x80);
+		io_binary_encoding_append_byte (message,SSD1306_PAGEADDR);
 
-		uint32_t size = (frame->size.width * frame->size.height/8);
-		uint32_t i;
-		for (i = 0; i < size; i++) {
-			phy->registers->DATA.reg = ((uint8_t const*) frame->pixel_data)[i];
-			while (phy->registers->INTFLAG.bit.MB == 0);
+		io_binary_encoding_append_byte (message,0x80);
+		io_binary_encoding_append_byte (message,0x00);
+
+		io_binary_encoding_append_byte (message,0x80);
+		io_binary_encoding_append_byte (message,(this->height_in_pixels/8) - 1);
+
+		io_binary_encoding_append_byte (message,0x40);// Co = 0, D/C = 1
+
+		uint32_t header_length = (io_encoding_length(message) - sizeof(io_twi_transfer_t));
+		io_twi_transfer_tx_length(cmd) = size + header_length;
+		this->oled_pixels = (uint8_t*) (cmd + 1) + header_length;
+		io_encoding_fill (message,0x00,size);
+
+		io_graphics_command_t **cursor = io_graphics_command_stack_begin(this->stack);
+		
+		while (cursor < io_graphics_command_stack_end (this->stack)) {
+			run_io_graphics_command (*cursor++,(io_graphics_context_t*) this);
 		}
-		phy->registers->CTRLB.bit.CMD = I2C_STOP_CMD;
-		ssd1306_display_driver_detach_from_i2c_bus (phy);
-
-		#else
-
-		phy->registers->DATA.reg = display_frame_buffer_read_next_byte(frame);
-		phy->registers->INTENSET.reg = SERCOM_I2CM_INTENSET_MB;
-		
-		#endif
-*/
+		this->oled_pixels = NULL;
+		this->end_of_command_action = ssd1306_io_graphics_end_of_pixels;
+		io_socket_send_message (twi,message);
+	}
 }
 
 io_graphics_context_t*
 mk_ssd1306_io_graphics_context_twi (
-	io_t *io,io_socket_t *ssd,
+	io_t *io,
+	io_socket_t *ssd,
 	uint32_t pixel_width,
 	uint32_t pixel_height,
-	uint32_t bus_address
+	uint32_t bus_address,
+	uint32_t stack_length
 ) {
 	ssd1306_io_graphics_context_twi_t *this = io_byte_memory_allocate (
 		io_get_byte_memory (io),sizeof (ssd1306_io_graphics_context_twi_t)
@@ -460,10 +498,12 @@ mk_ssd1306_io_graphics_context_twi (
 		);
 		
 		initialise_ssd1306_io_graphics_context (
-			(ssd1306_io_graphics_context_t*) this,io,ssd,pixel_width,pixel_height
+			(ssd1306_io_graphics_context_t*) this,io,ssd,pixel_width,pixel_height,stack_length
 		);
 		
-		io_socket_bind_inner (ssd,def_io_u8_address(bus_address),&this->command_complete,NULL);
+		io_socket_bind_inner (
+			ssd,def_io_u8_address(bus_address),&this->command_complete,NULL
+		);
 
 		ssd1306_io_graphics_context_initialise_twi (this);
 		
