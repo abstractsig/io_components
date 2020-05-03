@@ -32,9 +32,10 @@ io_graphics_context_t* mk_ssd1306_io_graphics_context_twi (io_t*,io_socket_t*,ui
 
 
 #ifdef IMPLEMENT_IO_COMPONENT_GRAPHICS_SSD1306
+
 //-----------------------------------------------------------------------------
 //
-// implementtaion
+// implementaion
 //
 //-----------------------------------------------------------------------------
 
@@ -119,10 +120,7 @@ mk_ssd1306_io_graphics_context (
 void
 free_ssd1306_io_graphics_context (io_graphics_context_t *gfx) {
 	ssd1306_io_graphics_context_t *this = cast_to_ssd1306_context (gfx);
-	
 	io_socket_close (this->ssd1306_socket);
-	
-//	io_byte_memory_free (io_get_byte_memory (this->io),this->oled_pixels);
 	io_byte_memory_free (io_get_byte_memory (this->io),this);
 }
 
@@ -372,13 +370,14 @@ static void
 ssd1306_command (io_socket_t *twi,uint8_t command_byte) {
 	io_encoding_t *message = io_socket_new_message (twi);
 	if (message) {
-		io_twi_transfer_t *cmd  = io_encoding_get_get_rw_header (message);
+		io_twi_transfer_t *cmd = get_twi_layer (message);
 		
 		io_twi_transfer_tx_length(cmd) = 2;
 		io_twi_transfer_rx_length(cmd) = 0;
 
 		io_binary_encoding_append_byte (message,0);// Co = 0, D/C = 0
 		io_binary_encoding_append_byte (message,command_byte);
+		
 		io_socket_send_message (twi,message);
 	}
 }
@@ -435,8 +434,9 @@ ssd1306_io_graphics_context_render_twi (io_graphics_context_t *gfx) {
 	io_encoding_t *message = io_socket_new_message (twi);
 
 	if (message) {
-		io_twi_transfer_t *cmd  = io_encoding_get_get_rw_header (message);
-		uint32_t size = (this->width_in_pixels * this->height_in_pixels/8);
+		io_twi_transfer_t *cmd = get_twi_layer (message);
+
+		uint32_t bitmap_size = (this->width_in_pixels * this->height_in_pixels/8);
 		io_twi_transfer_rx_length(cmd) = 0;
 
 		io_binary_encoding_append_byte (message,0x80);
@@ -459,13 +459,12 @@ ssd1306_io_graphics_context_render_twi (io_graphics_context_t *gfx) {
 
 		io_binary_encoding_append_byte (message,0x40);// Co = 0, D/C = 1
 
-		uint32_t header_length = (io_encoding_length(message) - sizeof(io_twi_transfer_t));
-		io_twi_transfer_tx_length(cmd) = size + header_length;
-		this->oled_pixels = (uint8_t*) (cmd + 1) + header_length;
-		io_encoding_fill (message,0x00,size);
+		uint32_t pixel_offset = io_encoding_length (message);
+		io_encoding_fill (message,0x00,bitmap_size);
+		this->oled_pixels = io_encoding_get_byte_stream (message) + pixel_offset;
+		io_twi_transfer_tx_length(cmd) = pixel_offset + bitmap_size;
 
 		io_graphics_command_t **cursor = io_graphics_command_stack_begin(this->stack);
-		
 		while (cursor < io_graphics_command_stack_end (this->stack)) {
 			run_io_graphics_command (*cursor++,(io_graphics_context_t*) this);
 		}
