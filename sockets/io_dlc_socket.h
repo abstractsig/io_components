@@ -29,7 +29,7 @@ typedef struct PACK_STRUCTURE io_dlc_socket {
 	
 } io_dlc_socket_t;
 
-io_socket_t*	mk_io_dlc_socket (io_t*);
+io_socket_t*	allocate_io_dlc_socket (io_t*,io_address_t);
 
 typedef struct PACK_STRUCTURE io_dlc_layer {
 	IO_LAYER_STRUCT_PROPERTIES
@@ -209,12 +209,12 @@ EVENT_DATA io_socket_implementation_t io_dlc_socket_implementation = {
 };
 
 io_socket_t*
-mk_io_dlc_socket (io_t *io) {
+allocate_io_dlc_socket (io_t *io,io_address_t address) {
 	io_socket_t *socket = io_byte_memory_allocate (
 		io_get_byte_memory (io),sizeof(io_dlc_socket_t)
 	);
 	socket->implementation = &io_dlc_socket_implementation;
-	socket->address = IO_DLC_LAYER_ID;
+	socket->address = duplicate_io_address (io_get_byte_memory (io),address);
 	return socket;
 }
 
