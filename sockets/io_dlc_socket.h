@@ -318,9 +318,9 @@ mk_io_dlc_layer_receive (io_packet_encoding_t *packet) {
 	return mk_io_dlc_layer_type (packet,&io_dlc_layer_receive_implementation);
 }
 
-static io_inner_port_t*
+static io_inner_port_binding_t*
 io_dlc_layer_receive_decode (
-	io_layer_t *layer,io_encoding_t *encoding,io_multiplex_socket_t* socket
+	io_layer_t *layer,io_encoding_t *encoding,io_socket_t* socket
 ) {
 	io_dlc_frame_t *packet = io_layer_get_byte_stream (layer,encoding);
 
@@ -332,7 +332,7 @@ io_dlc_layer_receive_decode (
 		io_inner_port_binding_t *inner = io_multiplex_socket_find_inner_binding (socket,addr);
 
 		if (inner) {
-			return inner->port;
+			return inner;
 		}
 	*/
 	}
