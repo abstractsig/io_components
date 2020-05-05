@@ -36,6 +36,12 @@ typedef struct PACK_STRUCTURE io_beacon_socket {
 io_socket_t* 	allocate_io_beacon_socket (io_t*);
 io_layer_t*		push_io_beacon_transmit_layer (io_encoding_t*);
 
+
+typedef struct PACK_STRUCTURE {
+	IO_LAYER_STRUCT_PROPERTIES
+} io_beacon_layer_t;
+
+
 #ifdef IMPLEMENT_IO_SOCKET_BEACON
 //-----------------------------------------------------------------------------
 //
@@ -56,7 +62,7 @@ static io_socket_t*
 io_socket_beacon_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
 	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 
-	initialise_io_counted_socket (socket,io);
+	initialise_io_counted_socket ((io_counted_socket_t*) socket,io);
 
 	initialise_io_event (
 		&this->next_beacon,io_beacon_socket_beacon_next_beacon,this
@@ -174,9 +180,7 @@ mk_io_beacon_layer_type (io_packet_encoding_t *packet,io_layer_implementation_t 
 
 	if (this) {
 		this->implementation = T;
-		this->bm = packet->bm;
 		this->layer_offset_in_byte_stream = io_encoding_length ((io_encoding_t*) packet);
-		this->remote = io_invalid_address();
 	}
 	
 	return (io_layer_t*) this;
@@ -184,8 +188,6 @@ mk_io_beacon_layer_type (io_packet_encoding_t *packet,io_layer_implementation_t 
 
 static void
 free_io_beacon_layer (io_layer_t *layer,io_byte_memory_t *bm) {
-	io_beacon_layer_t *this = (io_beacon_layer_t*) layer;
-	free_io_address (this->bm,this->remote);
 	io_byte_memory_free (bm,layer);
 }
 
