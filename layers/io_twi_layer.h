@@ -30,7 +30,7 @@ mk_io_twi_encoding (io_byte_memory_t *bm) {
 
 INLINE_FUNCTION bool
 is_io_twi_encoding (io_encoding_t const *encoding) {
-	return io_is_encoding_of_type (encoding,&io_twi_encoding_implementation);
+	return io_encoding_has_implementation (encoding,&io_twi_encoding_implementation);
 }
 
 INLINE_FUNCTION void*
@@ -68,7 +68,7 @@ free_twi_layer (io_layer_t *layer,io_byte_memory_t *bm) {
 }
 
 static bool
-twi_layer_set_local_address (
+twi_layer_set_source_address (
 	io_layer_t *layer,io_encoding_t *message,io_address_t local
 ) {
 	return false;
@@ -79,9 +79,10 @@ EVENT_DATA io_layer_implementation_t io_twi_layer_implementation = {
 	.specialisation_of = NULL,
 	.make = make_twi_layer,
 	.free = free_twi_layer,
-	.get_remote_address = NULL,
-	.get_local_address = NULL,
-	.set_local_address = twi_layer_set_local_address,
+	.get_destination_address = NULL,
+	.set_destination_address = NULL,
+	.get_source_address = NULL,
+	.set_source_address = twi_layer_set_source_address,
 };
 
 

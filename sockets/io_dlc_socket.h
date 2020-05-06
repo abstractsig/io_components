@@ -7,8 +7,8 @@
 #define io_dlc_socket_H_
 #include <io_core.h>
 #ifdef IMPLEMENT_IO_CORE
-# ifndef IMPLEMENT_IO_DLC_LAYER
-#  define IMPLEMENT_IO_DLC_LAYER
+# ifndef IMPLEMENT_IO_DLC_SOCKET
+#  define IMPLEMENT_IO_DLC_SOCKET
 # endif
 #endif
 
@@ -45,7 +45,7 @@ typedef struct PACK_STRUCTURE io_dlc_frame {
 	uint8_t content[];
 } io_dlc_frame_t;
 
-#ifdef IMPLEMENT_IO_DLC_LAYER
+#ifdef IMPLEMENT_IO_DLC_SOCKET
 //-----------------------------------------------------------------------------
 //
 // implementaion
@@ -174,7 +174,7 @@ io_dlc_socket_new_message (io_socket_t *socket) {
 	
 	if (dlc && outer) {
 		io_layer_set_inner_address (outer,message,io_socket_address (socket));
-		io_layer_set_remote_address (outer,message,io_layer_any_address (outer));
+		io_layer_set_destination_address (outer,message,io_layer_any_address (outer));
 	} else {
 		io_encoding_free(message);
 		message = NULL;
@@ -268,13 +268,13 @@ io_dlc_layer_match_address (io_layer_t *layer,io_address_t address) {
 }	
 
 static io_address_t
-io_dlc_layer_get_remote_address (io_layer_t *layer,io_encoding_t *encoding) {
+io_dlc_layer_get_destination_address (io_layer_t *layer,io_encoding_t *encoding) {
 	io_dlc_layer_t *this = (io_dlc_layer_t*) layer;
 	return this->remote;
 }
 
 static bool
-io_dlc_layer_set_remote_address (
+io_dlc_layer_set_destination_address (
 	io_layer_t *layer,io_encoding_t *message,io_address_t address
 ) {
 	io_dlc_layer_t *this = (io_dlc_layer_t*) layer;
@@ -301,13 +301,13 @@ EVENT_DATA io_layer_implementation_t io_dlc_layer_transmit_implementation = {
 	.any = io_dlc_layer_any_address,
 	.make = mk_io_dlc_layer_transmit,
 	.free =  free_io_dlc_layer,
-	.swap =  io_dlc_layer_swap_tx,
-	.decode = NULL,
+	.push_receive_layer =  io_dlc_layer_swap_tx,
+	.select_inner_binding = NULL,
 	.match_address =  io_dlc_layer_match_address,
-	.get_remote_address =  io_dlc_layer_get_remote_address,
-	.set_remote_address =  io_dlc_layer_set_remote_address,
-	.get_local_address =  NULL,
-	.set_local_address =  NULL,
+	.get_destination_address =  io_dlc_layer_get_destination_address,
+	.set_destination_address =  io_dlc_layer_set_destination_address,
+	.get_source_address =  NULL,
+	.set_source_address =  NULL,
 	.get_inner_address =  NULL,
 	.set_inner_address =  NULL,
 };
@@ -329,7 +329,7 @@ io_dlc_layer_receive_decode (
 		
 	/*
 		io_address_t addr = io_layer_get_inner_address (layer,encoding);
-		io_inner_port_binding_t *inner = io_multiplex_socket_find_inner_binding (socket,addr);
+		io_inner_port_binding_t *inner = io_multiplex_socket_find_inner_port_binding (socket,addr);
 
 		if (inner) {
 			return inner;
@@ -345,17 +345,17 @@ EVENT_DATA io_layer_implementation_t io_dlc_layer_receive_implementation = {
 	.any = io_dlc_layer_any_address,
 	.make = mk_io_dlc_layer_receive,
 	.free =  free_io_dlc_layer,
-	.swap =  NULL,
-	.decode = io_dlc_layer_receive_decode,
+	.push_receive_layer =  NULL,
+	.select_inner_binding = io_dlc_layer_receive_decode,
 	.match_address =  io_dlc_layer_match_address,
-	.get_remote_address =  io_dlc_layer_get_remote_address,
-	.set_remote_address =  io_dlc_layer_set_remote_address,
-	.get_local_address =  NULL,
-	.set_local_address =  NULL,
+	.get_destination_address =  io_dlc_layer_get_destination_address,
+	.set_destination_address =  io_dlc_layer_set_destination_address,
+	.get_source_address =  NULL,
+	.set_source_address =  NULL,
 	.get_inner_address =  NULL,
 	.set_inner_address =  NULL,
 };
-#endif /* IMPLEMENT_IO_DLC_LAYER */
+#endif /* IMPLEMENT_IO_DLC_SOCKET */
 #ifdef IMPLEMENT_VERIFY_IO_DLC_SOCKET
 
 UNIT_SETUP(setup_io_dlc_socket_unit_test) {
