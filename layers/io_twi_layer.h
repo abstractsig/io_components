@@ -34,6 +34,8 @@ get_twi_layer (io_encoding_t *encoding) {
 }
 
 
+io_layer_t* push_io_twi_transmit_layer (io_encoding_t*);
+
 #ifdef IMPLEMENT_IO_TWI_LAYER
 //-----------------------------------------------------------------------------
 //
@@ -173,9 +175,7 @@ TEST_BEGIN(test_io_twi_packet_encoding_1) {
 		const uint8_t *b,*e;
 		io_twi_transfer_t *h;
 
-		io_encoding_push_layer (
-			encoding,&io_twi_layer_implementation
-		);
+		push_io_twi_transmit_layer (encoding);
 
 		encoding = reference_io_encoding (encoding);
 		VERIFY(encoding != NULL,NULL);
