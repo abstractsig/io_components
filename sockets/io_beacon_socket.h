@@ -26,7 +26,11 @@ struct io_beacon_socket_state {
 };
 
 struct PACK_STRUCTURE io_beacon_socket {
-	IO_LEAF_SOCKET_STRUCT_MEMBERS
+	IO_COUNTED_SOCKET_STRUCT_MEMBERS
+	io_socket_t *outer_socket;
+	io_event_t transmit_event;
+	io_event_t receive_event;
+
 	io_beacon_socket_state_t const *state;
 	
 	io_event_t open_event;
@@ -44,7 +48,8 @@ struct PACK_STRUCTURE io_beacon_socket {
 };
 
 io_socket_t* 	allocate_io_beacon_socket (io_t*,io_address_t);
-io_layer_t*		push_io_beacon_layer (io_encoding_t*);
+io_layer_t*		push_io_beacon_transmit_layer (io_encoding_t*);
+io_layer_t*		push_io_beacon_receive_layer (io_encoding_t*);
 io_layer_t*		get_io_beacon_layer (io_encoding_t*);
 bool				io_beacon_socket_set_interval (io_socket_t*,io_time_t);
 
@@ -159,6 +164,35 @@ io_beacon_socket_timer_error (io_event_t *ev) {
 }
 
 static void
+io_beacon_socket_outer_transmit_event (io_event_t *ev) {
+}
+
+static void
+io_beacon_socket_outer_receive_event (io_event_t *ev) {
+	io_beacon_socket_t *this = ev->user_value;
+	
+	if (this->outer_socket) {
+		io_encoding_pipe_t* rx = cast_to_io_encoding_pipe (
+			io_socket_get_receive_pipe (
+				this->outer_socket,io_socket_address (this)
+			)
+		);
+		if (rx) {
+			io_encoding_t *next;
+			if (io_encoding_pipe_peek (rx,&next)) {
+				io_layer_t *base = get_io_beacon_layer (next);
+				if (base) {
+					io_layer_select_inner_binding (
+						base,next,(io_socket_t*) this
+					);
+				}
+				io_encoding_pipe_pop_encoding (rx);
+			}
+		}
+	}
+}
+
+static void
 io_beacon_socket_open_event (io_event_t *ev) {
 	io_beacon_socket_t *this = ev->user_value;
 	io_beacon_socket_call_state (this,this->state->open);
@@ -174,8 +208,18 @@ static io_socket_t*
 io_beacon_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
 	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 
-	io_leaf_socket_initialise (socket,io,C);
+	initialise_io_counted_socket ((io_counted_socket_t*) socket,io);
 
+	this->outer_socket = NULL;
+
+	initialise_io_event (
+		&this->receive_event,io_beacon_socket_outer_receive_event,this
+	);
+
+	initialise_io_event (
+		&this->transmit_event,io_beacon_socket_outer_transmit_event,this
+	);
+	
 	initialise_io_event (
 		&this->open_event,io_beacon_socket_open_event,this
 	);
@@ -207,7 +251,7 @@ io_beacon_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C
 
 static void
 io_beacon_socket_free (io_socket_t *socket) {
-	io_leaf_socket_free (socket);
+	io_counted_socket_free (socket);
 }
 
 bool
@@ -254,13 +298,16 @@ io_beacon_socket_new_message (io_socket_t *socket) {
 		io_encoding_t *message = reference_io_encoding (
 			io_socket_new_message (this->outer_socket)
 		);
-		io_layer_t *beacon = push_io_beacon_layer (message);
+		io_layer_t *beacon = push_io_beacon_transmit_layer (message);
 		
 		if (beacon) {
 			io_layer_t *outer = io_encoding_get_outer_layer (message,beacon);
 			if (outer) {
+				io_layer_set_destination_address (
+					outer,message,io_layer_any_address(beacon)
+				);
 				io_layer_set_inner_address (
-					outer,message,io_layer_get_inner_address(beacon,message)
+					outer,message,io_socket_address(socket)
 				);
 			}
 		} else {
@@ -286,6 +333,35 @@ io_beacon_socket_send_message (io_socket_t *socket,io_encoding_t *encoding) {
 	return ok;
 }
 
+static bool
+io_beacon_socket_bind (
+	io_socket_t *socket,io_address_t a,io_event_t *tx,io_event_t *rx
+) {
+	return false;
+}
+
+static bool
+io_beacon_socket_bind_to_outer (io_socket_t *socket,io_socket_t *outer) {
+	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
+	this->outer_socket = outer;
+	return io_socket_bind_inner (
+		outer,
+		io_socket_address (socket),
+		&this->transmit_event,
+		&this->receive_event
+	);
+}
+
+static size_t
+io_beacon_socket_mtu (io_socket_t const *socket) {
+	io_beacon_socket_t const *this = (io_beacon_socket_t const*) socket;
+	if (this->outer_socket) {
+		return io_socket_mtu (this->outer_socket);
+	} else {
+		return 0;
+	}
+}
+
 EVENT_DATA io_socket_implementation_t io_beacon_socket_implementation = {
 	.specialisation_of = &io_counted_socket_implementation,
 	.reference = io_counted_socket_increment_reference,
@@ -294,16 +370,16 @@ EVENT_DATA io_socket_implementation_t io_beacon_socket_implementation = {
 	.open = io_beacon_socket_open,
 	.close = io_beacon_socket_close,
 	.is_closed = io_beacon_socket_is_closed,
-	.bind_inner = io_leaf_socket_bind,
+	.bind_inner = io_beacon_socket_bind,
 	.bind_inner_constructor = io_virtual_socket_bind_inner_constructor,
 	.unbind_inner = io_virtual_socket_unbind_inner,
-	.bind_to_outer_socket = io_leaf_socket_bind_to_outer,
+	.bind_to_outer_socket = io_beacon_socket_bind_to_outer,
 	.new_message = io_beacon_socket_new_message,
 	.send_message = io_beacon_socket_send_message,
 	.get_receive_pipe = NULL,
 	.iterate_outer_sockets = NULL,
 	.iterate_inner_sockets = NULL,
-	.mtu = io_leaf_socket_mtu,
+	.mtu = io_beacon_socket_mtu,
 };
 
 io_socket_t*
@@ -330,19 +406,35 @@ typedef struct PACK_STRUCTURE io_beacon_frame {
 	uint8_t time[sizeof(io_time_t)];
 } io_beacon_frame_t;
 
-static io_layer_t*
-mk_io_beacon_layer (io_packet_encoding_t *packet) {
+static io_beacon_layer_t*
+mk_io_beacon_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 	extern EVENT_DATA io_layer_implementation_t io_beacon_layer_implementation;
 	io_beacon_layer_t *this = io_byte_memory_allocate (
-		packet->bm,sizeof(io_beacon_layer_t)
+		bm,sizeof(io_beacon_layer_t)
 	);
 
 	if (this) {
 		this->implementation = &io_beacon_layer_implementation;
-		this->layer_offset_in_byte_stream = io_encoding_length ((io_encoding_t*) packet);
+		this->layer_offset_in_byte_stream = io_encoding_length (packet);
+	}
+	
+	return this;
+}
+
+static io_layer_t*
+mk_io_beacon_transmit_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	io_beacon_layer_t *this = mk_io_beacon_layer (bm,packet);
+
+	if (this) {
+		io_encoding_fill (packet,0,sizeof(io_beacon_frame_t));
 	}
 	
 	return (io_layer_t*) this;
+}
+
+static io_layer_t*
+mk_io_beacon_receive_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	return (io_layer_t*) mk_io_beacon_layer (bm,packet);
 }
 
 static void
@@ -362,23 +454,15 @@ io_beacon_layer_match_address (io_layer_t *layer,io_address_t address) {
 
 static io_layer_t*
 io_beacon_layer_push_receive_layer (io_layer_t *layer,io_encoding_t *encoding) {
-	extern EVENT_DATA io_layer_implementation_t io_beacon_layer_implementation;
-	return io_encoding_push_layer (
-		encoding,&io_beacon_layer_implementation
-	);
+	return push_io_beacon_receive_layer (encoding);
 }
 
 static io_inner_port_binding_t*
 io_beacon_layer_select_inner_binding (
 	io_layer_t *layer,io_encoding_t *encoding,io_socket_t* socket
 ) {
-	io_address_t addr = io_layer_get_source_address (layer,encoding);
-	io_multiplex_socket_t *mux = (io_multiplex_socket_t*) socket;
-	if (mux) {
-		return io_multiplex_socket_find_inner_port_binding (mux,addr);
-	} else {
-		return NULL;
-	}
+	// push_
+	return NULL;
 }
 
 static bool
@@ -411,11 +495,25 @@ io_beacon_layer_get_source_address (
 	return IO_BEACON_LAYER_ID;
 }
 
+static bool
+io_beacon_layer_set_source_address (
+	io_layer_t *layer,io_encoding_t *message,io_address_t local
+) {
+	return false;
+}
+
 static io_address_t
 io_beacon_layer_get_destination_address (
 	io_layer_t *layer,io_encoding_t *message
 ) {
 	return IO_BEACON_LAYER_ID;
+}
+
+static bool
+io_beacon_layer_set_destination_address (
+	io_layer_t *layer,io_encoding_t *message,io_address_t local
+) {
+	return false;
 }
 
 static io_address_t
@@ -435,25 +533,30 @@ io_beacon_layer_set_inner_address (
 EVENT_DATA io_layer_implementation_t io_beacon_layer_implementation = {
 	.specialisation_of = &io_layer_implementation,
 	.any = io_beacon_layer_any_address,
-	.make = mk_io_beacon_layer,
 	.free =  free_io_beacon_layer,
 	.push_receive_layer =  io_beacon_layer_push_receive_layer,
 	.select_inner_binding = io_beacon_layer_select_inner_binding,
 	.match_address =  io_beacon_layer_match_address,
 	.load_header = io_beacon_layer_load_header,
-	.get_destination_address =  io_beacon_layer_get_destination_address,
-	.set_destination_address =  NULL,
-	.get_source_address =  io_beacon_layer_get_source_address,
-	.set_source_address =  NULL,
-	.get_inner_address =  io_beacon_layer_get_inner_address,
-	.set_inner_address =  io_beacon_layer_set_inner_address,
+	.get_destination_address = io_beacon_layer_get_destination_address,
+	.set_destination_address = io_beacon_layer_set_destination_address,
+	.get_source_address = io_beacon_layer_get_source_address,
+	.set_source_address = io_beacon_layer_set_source_address,
+	.get_inner_address = io_beacon_layer_get_inner_address,
+	.set_inner_address = io_beacon_layer_set_inner_address,
 };
 
 io_layer_t*
-push_io_beacon_layer (io_encoding_t *encoding) {
-	return io_encoding_push_layer (
-		encoding,&io_beacon_layer_implementation
-	);
+push_io_beacon_transmit_layer (io_encoding_t *encoding) {
+	return io_encoding_push_layer_2 (encoding,mk_io_beacon_transmit_layer);
+}
+
+io_layer_t*
+push_io_beacon_receive_layer (io_encoding_t *encoding) {
+	//
+	// we also decode encoding ...
+	//
+	return io_encoding_push_layer_2 (encoding,mk_io_beacon_receive_layer);
 }
 
 io_layer_t*
@@ -509,6 +612,8 @@ TEST_BEGIN(test_io_beacon_socket_1) {
 		{0,allocate_io_beacon_socket,IO_BEACON_LAYER_ID,&bus,false,BINDINGS({0,1},END_OF_BINDINGS)},
 		{1,allocate_io_socket_link_emulator,def_io_u8_address(11),&bus,false,BINDINGS({1,2},END_OF_BINDINGS)},
 		{2,allocate_io_shared_media,io_invalid_address(),&bus,false,NULL},
+		{3,allocate_io_beacon_socket,IO_BEACON_LAYER_ID,&bus,false,BINDINGS({3,4},END_OF_BINDINGS)},
+		{4,allocate_io_socket_link_emulator,def_io_u8_address(22),&bus,false,BINDINGS({4,2},END_OF_BINDINGS)},
 	};
 	
 	io_socket_t* net[SIZEOF(build)];

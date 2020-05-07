@@ -39,11 +39,6 @@ typedef struct PACK_STRUCTURE io_dlc_layer {
 
 io_layer_t* push_io_dlc_transmit_layer (io_encoding_t*);
 
-typedef struct PACK_STRUCTURE io_dlc_frame {
-	uint8_t length;
-	uint8_t command;
-	uint8_t content[];
-} io_dlc_frame_t;
 
 #ifdef IMPLEMENT_IO_DLC_SOCKET
 //-----------------------------------------------------------------------------
@@ -221,35 +216,50 @@ allocate_io_dlc_socket (io_t *io,io_address_t address) {
 //
 // layer
 //
+typedef struct PACK_STRUCTURE io_dlc_frame {
+	uint8_t length;
+	uint8_t command;
+	uint8_t content[];
+} io_dlc_frame_t;
 
-EVENT_DATA io_layer_implementation_t io_dlc_layer_implementation = {
-	SPECIALISE_VIRTUAL_IO_LAYER_IMPLEMENTATION(NULL)
-};
 
-static io_address_t
-io_dlc_layer_any_address (void) {
-	return io_invalid_address();
-}
-
-io_layer_t*
-push_io_dlc_transmit_layer (io_encoding_t *encoding) {
-	extern EVENT_DATA io_layer_implementation_t io_dlc_layer_transmit_implementation;
-	return io_encoding_push_layer (
-		encoding,&io_dlc_layer_transmit_implementation
-	);
-}
-
-static io_layer_t*
-mk_io_dlc_layer_type (io_packet_encoding_t *packet,io_layer_implementation_t const *T) {
+static io_dlc_layer_t*
+mk_io_dlc_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	extern EVENT_DATA io_layer_implementation_t io_dlc_layer_implementation;
 	io_dlc_layer_t *this = io_byte_memory_allocate (
-		packet->bm,sizeof(io_dlc_layer_t)
+		bm,sizeof(io_dlc_layer_t)
 	);
 
 	if (this) {
-		this->implementation = T;
-		this->bm = packet->bm;
-		this->layer_offset_in_byte_stream = io_encoding_length ((io_encoding_t*) packet);
+		this->implementation = &io_dlc_layer_implementation;
+		this->bm = bm;
+		this->layer_offset_in_byte_stream = io_encoding_length (packet);
 		this->remote = io_invalid_address();
+	}
+	
+	return this;
+}
+
+static io_layer_t*
+mk_io_dlc_transmit_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	io_dlc_layer_t *this = mk_io_dlc_layer (bm,packet);
+
+	if (this) {
+		io_encoding_fill (packet,0,sizeof(io_dlc_frame_t));
+	}
+	
+	return (io_layer_t*) this;
+}
+
+static io_layer_t*
+mk_io_dlc_receive_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	io_dlc_layer_t *this = mk_io_dlc_layer (bm,packet);
+
+	if (this) {
+		//
+		// where is offset in byte stream?
+		//
+		// decode
 	}
 	
 	return (io_layer_t*) this;
@@ -260,6 +270,11 @@ free_io_dlc_layer (io_layer_t *layer,io_byte_memory_t *bm) {
 	io_dlc_layer_t *this = (io_dlc_layer_t*) layer;
 	free_io_address (this->bm,this->remote);
 	io_byte_memory_free (bm,layer);
+}
+
+static io_address_t
+io_dlc_layer_any_address (void) {
+	return io_invalid_address();
 }
 
 static bool
@@ -283,43 +298,12 @@ io_dlc_layer_set_destination_address (
 }
 
 static io_layer_t*
-mk_io_dlc_layer_transmit (io_packet_encoding_t *packet) {
-	extern EVENT_DATA io_layer_implementation_t io_dlc_layer_transmit_implementation;
-	return mk_io_dlc_layer_type (packet,&io_dlc_layer_transmit_implementation);
-}
-
-static io_layer_t*
-io_dlc_layer_swap_tx (io_layer_t *layer,io_encoding_t *encoding) {
-	extern EVENT_DATA io_layer_implementation_t io_dlc_layer_receive_implementation;
-	return io_encoding_push_layer (
-		encoding,&io_dlc_layer_receive_implementation
-	);
-}
-
-EVENT_DATA io_layer_implementation_t io_dlc_layer_transmit_implementation = {
-	.specialisation_of = &io_dlc_layer_implementation,
-	.any = io_dlc_layer_any_address,
-	.make = mk_io_dlc_layer_transmit,
-	.free =  free_io_dlc_layer,
-	.push_receive_layer =  io_dlc_layer_swap_tx,
-	.select_inner_binding = NULL,
-	.match_address =  io_dlc_layer_match_address,
-	.get_destination_address =  io_dlc_layer_get_destination_address,
-	.set_destination_address =  io_dlc_layer_set_destination_address,
-	.get_source_address =  NULL,
-	.set_source_address =  NULL,
-	.get_inner_address =  NULL,
-	.set_inner_address =  NULL,
-};
-
-static io_layer_t*
-mk_io_dlc_layer_receive (io_packet_encoding_t *packet) {
-	extern EVENT_DATA io_layer_implementation_t io_dlc_layer_receive_implementation;
-	return mk_io_dlc_layer_type (packet,&io_dlc_layer_receive_implementation);
+io_dlc_layer_push_receive_layer (io_layer_t *layer,io_encoding_t *encoding) {
+	return io_encoding_push_layer_2 (encoding,mk_io_dlc_receive_layer);
 }
 
 static io_inner_port_binding_t*
-io_dlc_layer_receive_decode (
+io_dlc_layer_receive_select_inner_binding (
 	io_layer_t *layer,io_encoding_t *encoding,io_socket_t* socket
 ) {
 	io_dlc_frame_t *packet = io_layer_get_byte_stream (layer,encoding);
@@ -340,14 +324,14 @@ io_dlc_layer_receive_decode (
 	return NULL;
 }
 
-EVENT_DATA io_layer_implementation_t io_dlc_layer_receive_implementation = {
-	.specialisation_of = &io_dlc_layer_implementation,
+EVENT_DATA io_layer_implementation_t io_dlc_layer_implementation = {
+	.specialisation_of = NULL,
 	.any = io_dlc_layer_any_address,
-	.make = mk_io_dlc_layer_receive,
 	.free =  free_io_dlc_layer,
-	.push_receive_layer =  NULL,
-	.select_inner_binding = io_dlc_layer_receive_decode,
+	.push_receive_layer =  io_dlc_layer_push_receive_layer,
+	.select_inner_binding = io_dlc_layer_receive_select_inner_binding,
 	.match_address =  io_dlc_layer_match_address,
+	.load_header = NULL,
 	.get_destination_address =  io_dlc_layer_get_destination_address,
 	.set_destination_address =  io_dlc_layer_set_destination_address,
 	.get_source_address =  NULL,
@@ -355,6 +339,15 @@ EVENT_DATA io_layer_implementation_t io_dlc_layer_receive_implementation = {
 	.get_inner_address =  NULL,
 	.set_inner_address =  NULL,
 };
+
+io_layer_t*
+push_io_dlc_transmit_layer (io_encoding_t *encoding) {
+	return io_encoding_push_layer_2 (
+		encoding,mk_io_dlc_transmit_layer
+	);
+}
+
+
 #endif /* IMPLEMENT_IO_DLC_SOCKET */
 #ifdef IMPLEMENT_VERIFY_IO_DLC_SOCKET
 

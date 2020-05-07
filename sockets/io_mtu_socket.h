@@ -7,9 +7,11 @@
 #define io_mtu_socket_H_
 #include <io_core.h>
 
-
+//
+// is a procesing socket
+//
 typedef struct PACK_STRUCTURE io_mtu_socket {
-	IO_LEAF_SOCKET_STRUCT_MEMBERS	
+	IO_ADAPTER_SOCKET_STRUCT_MEMBERS	
 } io_mtu_socket_t;
 
 
@@ -87,7 +89,7 @@ EVENT_DATA io_socket_implementation_t io_mtu_socket_implementation = {
 	.send_message = io_mtu_socket_send_message,
 	.iterate_inner_sockets = NULL,
 	.iterate_outer_sockets = NULL,
-	.mtu = io_leaf_socket_mtu,
+	.mtu = io_adapter_address_mtu,
 };
 
 

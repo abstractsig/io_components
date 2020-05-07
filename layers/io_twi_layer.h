@@ -23,11 +23,6 @@ typedef struct PACK_STRUCTURE io_twi_transfer {
 extern EVENT_DATA io_layer_implementation_t io_twi_layer_implementation;
 extern EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation;
 
-INLINE_FUNCTION io_encoding_t*
-mk_io_twi_encoding (io_byte_memory_t *bm) {
-	return io_twi_encoding_implementation.make_encoding(bm);
-}
-
 INLINE_FUNCTION bool
 is_io_twi_encoding (io_encoding_t const *encoding) {
 	return io_encoding_has_implementation (encoding,&io_twi_encoding_implementation);
@@ -46,10 +41,10 @@ get_twi_layer (io_encoding_t *encoding) {
 //
 //-----------------------------------------------------------------------------
 
-static io_layer_t*
-make_twi_layer (io_packet_encoding_t *packet) {
+static io_twi_transfer_t*
+mk_twi_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 	io_twi_transfer_t *this = io_byte_memory_allocate (
-		packet->bm,sizeof(io_twi_transfer_t)
+		bm,sizeof(io_twi_transfer_t)
 	);
 	if (this) {
 		this->implementation = &io_twi_layer_implementation;
@@ -57,6 +52,28 @@ make_twi_layer (io_packet_encoding_t *packet) {
 		this->cmd.bus_address = 0;
 		this->cmd.tx_length = 0;
 		this->cmd.rx_length = 0;
+	}
+	
+	return this;
+}
+
+static io_layer_t*
+mk_twi_transmit_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	io_twi_transfer_t *this = mk_twi_layer (bm,packet);
+
+	if (this) {
+		this->layer_offset_in_byte_stream = io_encoding_length ((io_encoding_t*) packet);
+	}
+	
+	return (io_layer_t*) this;
+}
+
+static io_layer_t*
+mk_twi_receive_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
+	io_twi_transfer_t *this = mk_twi_layer (bm,packet);
+
+	if (this) {
+		//this->layer_offset_in_byte_stream = io_encoding_length ((io_encoding_t*) packet);
 	}
 	
 	return (io_layer_t*) this;
@@ -74,17 +91,32 @@ twi_layer_set_source_address (
 	return false;
 }
 
-
 EVENT_DATA io_layer_implementation_t io_twi_layer_implementation = {
 	.specialisation_of = NULL,
-	.make = make_twi_layer,
 	.free = free_twi_layer,
+	.any = NULL,
+	.push_receive_layer = NULL,
+	.select_inner_binding = NULL,
+	.get_content = NULL,
+	.match_address =  NULL,
+	.load_header = NULL,
 	.get_destination_address = NULL,
 	.set_destination_address = NULL,
 	.get_source_address = NULL,
 	.set_source_address = twi_layer_set_source_address,
+	.get_inner_address = NULL,
+	.set_inner_address = NULL,
 };
 
+io_layer_t*
+push_io_twi_transmit_layer (io_encoding_t *encoding) {
+	return io_encoding_push_layer_2 (encoding,mk_twi_transmit_layer);
+}
+
+io_layer_t*
+push_io_twi_receive_layer (io_encoding_t *encoding) {
+	return io_encoding_push_layer_2 (encoding,mk_twi_receive_layer);
+}
 
 static io_encoding_t* 
 io_twi_encoding_new (io_byte_memory_t *bm) {
@@ -101,14 +133,6 @@ io_twi_encoding_new (io_byte_memory_t *bm) {
 	return (io_encoding_t*) this;
 };
 
-EVENT_DATA io_encoding_layer_api_t twi_layer_api = {
-	.get_inner_layer = NULL,
-	.get_outer_layer = NULL,
-	.get_layer = get_packet_encoding_layer,
-	.push_layer = io_packet_encoding_push_layer,
-};
-
-
 EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 	.specialisation_of = &io_binary_encoding_implementation,
 	.decode_to_io_value = io_binary_encoding_decode_to_io_value,
@@ -117,7 +141,7 @@ EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 	.get_io = io_binary_encoding_get_io,
 	.grow = io_binary_encoding_grow,
 	.grow_increment = default_io_encoding_grow_increment,
-	.layer = &twi_layer_api,
+	.layer = &io_packet_layer_api,
 	.fill = io_binary_encoding_fill_bytes,
 	.append_byte = io_binary_encoding_append_byte,
 	.append_bytes = io_binary_encoding_append_bytes,
@@ -131,6 +155,11 @@ EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 };
 #endif /* IMPLEMENT_IO_TWI_LAYER */
 #ifdef IMPLEMENT_VERIFY_IO_TWI_LAYER
+
+static io_encoding_t*
+mk_io_twi_encoding (io_byte_memory_t *bm) {
+	return io_twi_encoding_implementation.make_encoding(bm);
+}
 
 TEST_BEGIN(test_io_twi_packet_encoding_1) {
 	io_byte_memory_t *bm = io_get_byte_memory (TEST_IO);
