@@ -33,7 +33,7 @@ get_twi_layer (io_encoding_t *encoding) {
 	return io_encoding_get_layer (encoding,&io_twi_layer_implementation);
 }
 
-
+io_encoding_t* mk_io_twi_encoding (io_byte_memory_t*);
 io_layer_t* push_io_twi_transmit_layer (io_encoding_t*);
 
 #ifdef IMPLEMENT_IO_TWI_LAYER
@@ -120,8 +120,8 @@ push_io_twi_receive_layer (io_encoding_t *encoding) {
 	return io_encoding_push_layer_2 (encoding,mk_twi_receive_layer);
 }
 
-static io_encoding_t* 
-io_twi_encoding_new (io_byte_memory_t *bm) {
+io_encoding_t* 
+mk_io_twi_encoding (io_byte_memory_t *bm) {
 	io_packet_encoding_t *this = io_byte_memory_allocate (
 		bm,sizeof(io_packet_encoding_t)
 	);
@@ -137,13 +137,14 @@ io_twi_encoding_new (io_byte_memory_t *bm) {
 
 EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 	.specialisation_of = &io_binary_encoding_implementation,
-	.decode_to_io_value = io_binary_encoding_decode_to_io_value,
-	.make_encoding = io_twi_encoding_new,
+	.make_encoding = mk_io_twi_encoding,
 	.free = io_packet_encoding_free,
 	.get_io = io_binary_encoding_get_io,
 	.grow = io_binary_encoding_grow,
 	.grow_increment = default_io_encoding_grow_increment,
 	.layer = &io_packet_layer_api,
+	.decode_to_io_value = io_binary_encoding_decode_to_io_value,
+	.increment_decode_offest = io_encoding_no_decode_increment,
 	.fill = io_binary_encoding_fill_bytes,
 	.append_byte = io_binary_encoding_append_byte,
 	.append_bytes = io_binary_encoding_append_bytes,

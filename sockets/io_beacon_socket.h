@@ -21,15 +21,23 @@ typedef struct io_beacon_socket io_beacon_socket_t;
 
 struct io_beacon_socket_state {
 	io_beacon_socket_state_t const* (*enter) (io_beacon_socket_t*);
-	io_beacon_socket_state_t const* (*open) (io_beacon_socket_t*);	
-	io_beacon_socket_state_t const* (*close) (io_beacon_socket_t*);	
+	io_beacon_socket_state_t const* (*open) (io_beacon_socket_t*);
+	io_beacon_socket_state_t const* (*close) (io_beacon_socket_t*);
+	io_beacon_socket_state_t const* (*receive) (io_beacon_socket_t*);
 };
 
+//
+// internal socket that does not support inner bindings
+//
+#define IO_LEAF_SOCKET_STRUCT_MEMBERS \
+	IO_COUNTED_SOCKET_STRUCT_MEMBERS \
+	io_event_t transmit_event; \
+	io_event_t receive_event; \
+	io_socket_t *outer_socket; \
+	/**/
+
 struct PACK_STRUCTURE io_beacon_socket {
-	IO_COUNTED_SOCKET_STRUCT_MEMBERS
-	io_socket_t *outer_socket;
-	io_event_t transmit_event;
-	io_event_t receive_event;
+	IO_LEAF_SOCKET_STRUCT_MEMBERS
 
 	io_beacon_socket_state_t const *state;
 	
@@ -180,11 +188,9 @@ io_beacon_socket_outer_receive_event (io_event_t *ev) {
 		if (rx) {
 			io_encoding_t *next;
 			if (io_encoding_pipe_peek (rx,&next)) {
-				io_layer_t *base = get_io_beacon_layer (next);
+				io_layer_t *base = push_io_beacon_receive_layer (next);
 				if (base) {
-					io_layer_select_inner_binding (
-						base,next,(io_socket_t*) this
-					);
+
 				}
 				io_encoding_pipe_pop_encoding (rx);
 			}
@@ -304,7 +310,7 @@ io_beacon_socket_new_message (io_socket_t *socket) {
 			io_layer_t *outer = io_encoding_get_outer_layer (message,beacon);
 			if (outer) {
 				io_layer_set_destination_address (
-					outer,message,io_layer_any_address(beacon)
+					outer,message,io_layer_any_address(outer)
 				);
 				io_layer_set_inner_address (
 					outer,message,io_socket_address(socket)
@@ -415,7 +421,6 @@ mk_io_beacon_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 
 	if (this) {
 		this->implementation = &io_beacon_layer_implementation;
-		this->layer_offset_in_byte_stream = io_encoding_length (packet);
 	}
 	
 	return this;
@@ -426,6 +431,7 @@ mk_io_beacon_transmit_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 	io_beacon_layer_t *this = mk_io_beacon_layer (bm,packet);
 
 	if (this) {
+		this->layer_offset_in_byte_stream = io_encoding_length (packet);
 		io_encoding_fill (packet,0,sizeof(io_beacon_frame_t));
 	}
 	
@@ -434,7 +440,27 @@ mk_io_beacon_transmit_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 
 static io_layer_t*
 mk_io_beacon_receive_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
-	return (io_layer_t*) mk_io_beacon_layer (bm,packet);
+	io_beacon_layer_t *this = mk_io_beacon_layer (bm,packet);
+
+	if (this) {
+		this->layer_offset_in_byte_stream = io_encoding_increment_decode_offest (
+			packet,sizeof(io_a4_link_frame_t)
+		);
+		io_beacon_frame_t *frame = io_layer_get_byte_stream ((io_layer_t*) this,packet);
+
+		io_address_t address;
+		uint8_t *read_cursor = frame->inner_address;
+		uint8_t *end_of_buffer = read_cursor + IO_BEACON_FRAME_INNER_ADDRESS_LIMIT;
+	
+		address = io_invalid_address();
+		read_cursor += read_le_io_address (bm,read_cursor,end_of_buffer - read_cursor,&address);
+		io_layer_set_inner_address ((io_layer_t*) this,packet,address);
+		
+		
+		UNUSED(frame);
+	}
+	
+	return (io_layer_t*) this;
 }
 
 static void
