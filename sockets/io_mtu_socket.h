@@ -89,7 +89,7 @@ EVENT_DATA io_socket_implementation_t io_mtu_socket_implementation = {
 	.send_message = io_mtu_socket_send_message,
 	.iterate_inner_sockets = NULL,
 	.iterate_outer_sockets = NULL,
-	.mtu = io_adapter_address_mtu,
+	.mtu = io_adapter_socket_mtu,
 };
 
 

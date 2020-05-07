@@ -159,11 +159,6 @@ EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 #endif /* IMPLEMENT_IO_TWI_LAYER */
 #ifdef IMPLEMENT_VERIFY_IO_TWI_LAYER
 
-static io_encoding_t*
-mk_io_twi_encoding (io_byte_memory_t *bm) {
-	return io_twi_encoding_implementation.make_encoding(bm);
-}
-
 TEST_BEGIN(test_io_twi_packet_encoding_1) {
 	io_byte_memory_t *bm = io_get_byte_memory (TEST_IO);
 	memory_info_t begin,end;
