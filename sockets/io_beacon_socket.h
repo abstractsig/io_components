@@ -24,6 +24,7 @@ struct io_beacon_socket_state {
 	io_beacon_socket_state_t const* (*open) (io_beacon_socket_t*);
 	io_beacon_socket_state_t const* (*close) (io_beacon_socket_t*);
 	io_beacon_socket_state_t const* (*receive) (io_beacon_socket_t*);
+	io_beacon_socket_state_t const* (*transmit) (io_beacon_socket_t*);
 	io_beacon_socket_state_t const* (*timer) (io_beacon_socket_t*);
 };
 
@@ -34,6 +35,7 @@ struct io_beacon_socket_state {
 	IO_COUNTED_SOCKET_STRUCT_MEMBERS \
 	io_event_t transmit_event; \
 	io_event_t receive_event; \
+	io_encoding_pipe_t *receive_pipe;\
 	io_socket_t *outer_socket; \
 	/**/
 
@@ -134,6 +136,7 @@ io_beacon_socket_state_nop (io_beacon_socket_t *this) {
 static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_closed;
 static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send_delay;
 static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send;
+static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_wait;
 
 static io_beacon_socket_state_t const*
 io_beacon_socket_state_closed_open (io_beacon_socket_t *this) {
@@ -145,6 +148,7 @@ static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_closed = {
 	.open = io_beacon_socket_state_closed_open,
 	.close = io_beacon_socket_state_nop,
 	.receive = io_beacon_socket_state_nop,
+	.transmit = io_beacon_socket_state_nop,
 	.timer = io_beacon_socket_state_nop,
 };
 
@@ -176,6 +180,7 @@ static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send_delay = {
 	.open = io_beacon_socket_state_nop,
 	.close = io_beacon_socket_state_nop,	
 	.receive = io_beacon_socket_state_nop,
+	.transmit = io_beacon_socket_state_nop,
 	.timer = io_beacon_socket_state_send_delay_done,
 };
 
@@ -187,6 +192,7 @@ io_beacon_socket_state_send_enter (io_beacon_socket_t *this) {
 		if (layer) {
 			io_layer_load_header (layer,message);
 			io_socket_send_message ((io_socket_t*) this,message);
+			return &io_beacon_socket_state_wait;
 		}
 	}
 	return this->state;
@@ -197,6 +203,39 @@ static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send = {
 	.open = io_beacon_socket_state_nop,
 	.close = io_beacon_socket_state_nop,	
 	.receive = io_beacon_socket_state_nop,
+	.transmit = io_beacon_socket_state_nop,
+	.timer = io_beacon_socket_state_nop,
+};
+
+static io_beacon_socket_state_t const*
+io_beacon_socket_state_wait_enter (io_beacon_socket_t *this) {
+	return this->state;
+}
+
+static io_beacon_socket_state_t const*
+io_beacon_socket_state_wait_receive (io_beacon_socket_t *this) {
+	io_encoding_t *next;
+	
+	while (io_encoding_pipe_peek (this->receive_pipe,&next)) {
+	
+		io_encoding_pipe_pop_encoding (this->receive_pipe);
+	}
+	
+	return this->state;
+}
+
+static io_beacon_socket_state_t const*
+io_beacon_socket_state_wait_transmit (io_beacon_socket_t *this) {
+	return this->state;
+}
+
+
+static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_wait = {
+	.enter = io_beacon_socket_state_wait_enter,
+	.open = io_beacon_socket_state_nop,
+	.close = io_beacon_socket_state_nop,	
+	.receive = io_beacon_socket_state_wait_receive,
+	.transmit = io_beacon_socket_state_wait_transmit,
 	.timer = io_beacon_socket_state_nop,
 };
 
@@ -215,6 +254,8 @@ io_beacon_socket_timer_error (io_event_t *ev) {
 
 static void
 io_beacon_socket_outer_transmit_event (io_event_t *ev) {
+	io_beacon_socket_t *this = ev->user_value;
+	io_beacon_socket_call_state (this,this->state->transmit);
 }
 
 static void
@@ -232,7 +273,9 @@ io_beacon_socket_outer_receive_event (io_event_t *ev) {
 			if (io_encoding_pipe_peek (rx,&next)) {
 				io_layer_t *base = push_io_beacon_receive_layer (next);
 				if (base) {
-
+					if (io_encoding_pipe_put_encoding (this->receive_pipe,next)) {
+						io_beacon_socket_call_state (this,this->state->receive);
+					}
 				}
 				io_encoding_pipe_pop_encoding (rx);
 			}
@@ -259,7 +302,10 @@ io_beacon_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C
 	initialise_io_counted_socket ((io_counted_socket_t*) socket,io);
 
 	this->outer_socket = NULL;
-
+	this->receive_pipe = mk_io_encoding_pipe (
+		io_get_byte_memory(io),io_settings_receive_pipe_length(C)
+	);
+	
 	initialise_io_event (
 		&this->receive_event,io_beacon_socket_outer_receive_event,this
 	);
@@ -302,6 +348,7 @@ io_beacon_socket_free (io_socket_t *socket) {
 	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 
 	io_dequeue_alarm (io_socket_io (this),&this->beacon_timer);
+	free_io_encoding_pipe (this->receive_pipe,io_socket_byte_memory(socket));
 	
 	io_counted_socket_free (socket);
 }
@@ -336,6 +383,7 @@ io_beacon_socket_open (io_socket_t *socket) {
 
 static void
 io_beacon_socket_close (io_socket_t *socket) {
+	// unbind...
 }
 
 static bool
@@ -429,7 +477,7 @@ EVENT_DATA io_socket_implementation_t io_beacon_socket_implementation = {
 	.bind_to_outer_socket = io_beacon_socket_bind_to_outer,
 	.new_message = io_beacon_socket_new_message,
 	.send_message = io_beacon_socket_send_message,
-	.get_receive_pipe = NULL,
+	.get_receive_pipe = io_virtual_socket_get_receive_pipe,
 	.iterate_outer_sockets = NULL,
 	.iterate_inner_sockets = NULL,
 	.mtu = io_beacon_socket_mtu,
