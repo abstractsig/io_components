@@ -24,6 +24,7 @@ struct io_beacon_socket_state {
 	io_beacon_socket_state_t const* (*open) (io_beacon_socket_t*);
 	io_beacon_socket_state_t const* (*close) (io_beacon_socket_t*);
 	io_beacon_socket_state_t const* (*receive) (io_beacon_socket_t*);
+	io_beacon_socket_state_t const* (*timer) (io_beacon_socket_t*);
 };
 
 //
@@ -46,8 +47,8 @@ struct PACK_STRUCTURE io_beacon_socket {
 	
 	io_time_t interval;
 	
-	io_event_t next_beacon;
-	io_event_t beacon_interval_error;
+	io_event_t timer_event;
+	io_event_t timer_error;
 	io_alarm_t beacon_timer;
 	
 	io_socket_constructor_t make;
@@ -111,16 +112,19 @@ io_beacon_socket_state_nop (io_beacon_socket_t *this) {
  *
  * beacon states
  *
- *               io_beacon_socket_state_closed <---.
- *                 |                               |                             
- *                 v                               |
- *         .---> io_beacon_socket_state_send       |
- *         |       |                               |                             
- *         |       v                               |
- *         |     io_beacon_socket_state_wait  ->---+
- *         |       |                               |                            
- *         |       v                               |
- *         |     io_beacon_socket_state_sleep ->---'
+ *               io_beacon_socket_state_closed <-----.
+ *                 |                                 |                             
+ *                 v                                 |
+ *         .---> io_beacon_socket_state_send_delay   |
+ *         |       |                                 |                             
+ *         |       v                                 |
+ *         |     io_beacon_socket_state_send         |
+ *         |       |                                 | 
+ *         |       v                                 |
+ *         |     io_beacon_socket_state_wait  ->-----+
+ *         |       |                                 |                            
+ *         |       v                                 |
+ *         |     io_beacon_socket_state_sleep ->-----'
  *         |       |                             
  *         `-------'
  *
@@ -128,6 +132,7 @@ io_beacon_socket_state_nop (io_beacon_socket_t *this) {
  *-----------------------------------------------------------------------------
  */
 static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_closed;
+static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send_delay;
 static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send;
 
 static io_beacon_socket_state_t const*
@@ -138,7 +143,40 @@ io_beacon_socket_state_closed_open (io_beacon_socket_t *this) {
 static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_closed = {
 	.enter = io_beacon_socket_state_nop,
 	.open = io_beacon_socket_state_closed_open,
+	.close = io_beacon_socket_state_nop,
+	.receive = io_beacon_socket_state_nop,
+	.timer = io_beacon_socket_state_nop,
+};
+
+void
+set_alarm_time (io_t *io,io_alarm_t *alarm,io_time_t delay) {
+	io_time_t t = io_get_time (io);
+	alarm->when = (io_time_t) {t.ns + delay.ns};
+}
+
+static io_beacon_socket_state_t const*
+io_beacon_socket_state_send_delay_enter (io_beacon_socket_t *this) {
+	io_t *io = io_socket_io (this);
+	
+	uint32_t rand = io_get_next_prbs_u32(io) % 32;
+	
+	set_alarm_time (io,&this->beacon_timer,millisecond_time(20 + rand));
+	io_enqueue_alarm (io,&this->beacon_timer);
+	
+	return this->state;
+}
+
+static io_beacon_socket_state_t const*
+io_beacon_socket_state_send_delay_done (io_beacon_socket_t *this) {
+	return &io_beacon_socket_state_send;
+}
+
+static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send_delay = {
+	.enter = io_beacon_socket_state_send_delay_enter,
+	.open = io_beacon_socket_state_nop,
 	.close = io_beacon_socket_state_nop,	
+	.receive = io_beacon_socket_state_nop,
+	.timer = io_beacon_socket_state_send_delay_done,
 };
 
 static io_beacon_socket_state_t const*
@@ -158,13 +196,17 @@ static EVENT_DATA io_beacon_socket_state_t io_beacon_socket_state_send = {
 	.enter = io_beacon_socket_state_send_enter,
 	.open = io_beacon_socket_state_nop,
 	.close = io_beacon_socket_state_nop,	
+	.receive = io_beacon_socket_state_nop,
+	.timer = io_beacon_socket_state_nop,
 };
 
 //
 // now the socket
 //
 static void
-io_beacon_socket_beacon_next_beacon (io_event_t *ev) {
+io_beacon_socket_beacon_timer_event (io_event_t *ev) {
+	io_beacon_socket_t *this = ev->user_value;
+	io_beacon_socket_call_state (this,this->state->timer);
 }
 
 static void
@@ -235,14 +277,14 @@ io_beacon_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C
 	);
 
 	initialise_io_event (
-		&this->next_beacon,io_beacon_socket_beacon_next_beacon,this
+		&this->timer_event,io_beacon_socket_beacon_timer_event,this
 	);
 
 	initialise_io_event (
-		&this->beacon_interval_error,io_beacon_socket_timer_error,this
+		&this->timer_error,io_beacon_socket_timer_error,this
 	);
 	initialise_io_alarm (
-		&this->beacon_timer,&this->next_beacon,&this->beacon_interval_error,time_zero()
+		&this->beacon_timer,&this->timer_event,&this->timer_error,time_zero()
 	);
 	
 	this->interval = time_zero();
@@ -257,6 +299,10 @@ io_beacon_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C
 
 static void
 io_beacon_socket_free (io_socket_t *socket) {
+	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
+
+	io_dequeue_alarm (io_socket_io (this),&this->beacon_timer);
+	
 	io_counted_socket_free (socket);
 }
 
@@ -264,8 +310,9 @@ bool
 io_beacon_socket_set_interval (io_socket_t *socket,io_time_t interval) {
 	io_beacon_socket_t *this = cast_to_io_beacon_socket (socket);
 	if (this) {
-		// signal into state machine ...
+		bool cs = enter_io_critical_section (io_socket_io (socket));
 		this->interval = interval;
+		exit_io_critical_section (io_socket_io (socket),cs);
 		return true;
 	} else {
 		return false;
