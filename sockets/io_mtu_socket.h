@@ -40,7 +40,7 @@ io_mtu_socket_free (io_socket_t *socket) {
 }
 
 static bool
-io_mtu_socket_open (io_socket_t *socket) {
+io_mtu_socket_open (io_socket_t *socket,io_socket_open_flag_t flag) {
 	return false;
 }
 

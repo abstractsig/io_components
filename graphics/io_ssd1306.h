@@ -410,10 +410,10 @@ ssd1306_io_graphics_context_twi_command_complete (io_event_t *ev) {
 
 static void
 ssd1306_io_graphics_context_initialise_twi (ssd1306_io_graphics_context_twi_t *this) {
-	if (io_socket_open (this->ssd1306_socket)) {
+	if (io_socket_open (this->ssd1306_socket,IO_SOCKET_OPEN_CONNECT)) {
 		io_socket_t *twi = this->ssd1306_socket;
 
-		io_socket_open (twi);
+		io_socket_open (twi,IO_SOCKET_OPEN_CONNECT);
 		
 		this->current_command = startup_commands;
 		this->end_of_command_sequence = startup_commands + SIZEOF(startup_commands);
