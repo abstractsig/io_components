@@ -39,7 +39,7 @@ io_layer_t* push_io_twi_transmit_layer (io_encoding_t*);
 #ifdef IMPLEMENT_IO_TWI_LAYER
 //-----------------------------------------------------------------------------
 //
-// implementaion
+// implementation
 //
 //-----------------------------------------------------------------------------
 

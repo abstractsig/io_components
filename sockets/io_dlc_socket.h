@@ -12,21 +12,18 @@
 # endif
 #endif
 
+
 typedef struct io_dlc_socket_state io_dlc_socket_state_t;
-typedef struct io_dlc_socket io_dlc_socket_t;
 
 typedef struct io_dlc_socket_state {
-	io_dlc_socket_state_t const* (*enter) (io_dlc_socket_t*);
-	io_dlc_socket_state_t const* (*receive) (io_dlc_socket_t*);	
+	IO_SOCKET_STATE_STRUCT_MEMBERS
 } io_dlc_socket_state_t;
 
 static EVENT_DATA io_dlc_socket_state_t io_dlc_socket_state_closed;
 
 typedef struct PACK_STRUCTURE io_dlc_socket {
 	IO_MULTIPLEXER_SOCKET_STRUCT_MEMBERS
-	
-	io_dlc_socket_state_t const *state;
-	
+	io_event_t open_event;
 } io_dlc_socket_t;
 
 io_socket_t*	allocate_io_dlc_socket (io_t*,io_address_t);
@@ -43,31 +40,9 @@ io_layer_t* push_io_dlc_transmit_layer (io_encoding_t*);
 #ifdef IMPLEMENT_IO_DLC_SOCKET
 //-----------------------------------------------------------------------------
 //
-// implementaion
+// implementation
 //
 //-----------------------------------------------------------------------------
-
-INLINE_FUNCTION io_dlc_socket_state_t const*
-call_io_dlc_socket_state_enter (io_dlc_socket_t *dlc) {
-	return dlc->state->enter (dlc);
-}
-
-static void io_dlc_socket_call_state (io_dlc_socket_t*,io_dlc_socket_state_t const* (*fn) (io_dlc_socket_t*));
-
-INLINE_FUNCTION void
-io_dlc_socket_enter_current_state (io_dlc_socket_t *this) {
-	io_dlc_socket_call_state (this,this->state->enter);
-}
-
-static void
-io_dlc_socket_call_state (io_dlc_socket_t *this,io_dlc_socket_state_t const* (*fn) (io_dlc_socket_t*)) {
-	io_dlc_socket_state_t const *current = this->state;
-	io_dlc_socket_state_t const *next = fn (this);
-	if (next != current) {
-		this->state = next;
-		 io_dlc_socket_enter_current_state (this);
-	}
-}
 
 /*
  *-----------------------------------------------------------------------------
@@ -75,9 +50,13 @@ io_dlc_socket_call_state (io_dlc_socket_t *this,io_dlc_socket_state_t const* (*f
  *
  * dlc socket states
  *
- *               io_dlc_socket_state_closed
- *                 |                             
- *                 v
+ *           io_dlc_socket_state_closed
+ *             | 
+ *             +--------------------------------. 
+ *             v                                v
+ *           io_dlc_socket_state_open_listen  io_dlc_socket_state_open_connect
+ *             | 
+ *             v
  *               
  *
  *-----------------------------------------------------------------------------
@@ -86,17 +65,19 @@ io_dlc_socket_call_state (io_dlc_socket_t *this,io_dlc_socket_state_t const* (*f
 static EVENT_DATA io_dlc_socket_state_t io_dlc_socket_state_closed;
 
 
-static io_dlc_socket_state_t const*
-io_dlc_socket_state_closed_enter (io_dlc_socket_t *this) {
-	return this->state;
+static io_socket_state_t const*
+io_dlc_socket_state_closed_enter (io_socket_t *socket) {
+	return socket->State;
 }
 
-static io_dlc_socket_state_t const*
-io_dlc_socket_state_closed_receive (io_dlc_socket_t *this) {
-	return this->state;
+static io_socket_state_t const*
+io_dlc_socket_state_closed_receive (io_socket_t *socket) {
+	return socket->State;
 }
 
 static EVENT_DATA io_dlc_socket_state_t io_dlc_socket_state_closed = {
+	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
+	.enter = io_dlc_socket_state_closed_enter,
 	.enter = io_dlc_socket_state_closed_enter,
 	.receive = io_dlc_socket_state_closed_receive,
 };
@@ -104,6 +85,14 @@ static EVENT_DATA io_dlc_socket_state_t io_dlc_socket_state_closed = {
 //
 // socket
 //
+
+static void
+io_dlc_socket_open_event (io_event_t *ev) {
+	io_socket_open_event_t *open = (io_socket_open_event_t*) ev;	
+	io_socket_t *socket = ev->user_value;
+	io_socket_call_open (socket,open->flag);
+	free_io_socket_open_event (io_socket_byte_memory (socket),open);
+}
 
 static void	
 io_dlc_socket_tx_event (io_event_t *ev) {
@@ -122,13 +111,18 @@ io_dlc_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
 	initialise_io_event (
 		&this->transmit_event,io_dlc_socket_tx_event,this
 	);
+
 	initialise_io_event (
 		&this->receive_event,io_dlc_socket_rx_event,this
 	);
 
-	this->state = &io_dlc_socket_state_closed;
+	initialise_io_event (
+		&this->open_event,io_dlc_socket_open_event,this
+	);
+
+	this->State = (io_socket_state_t const*) &io_dlc_socket_state_closed;
 	
-	io_dlc_socket_enter_current_state (this);
+	io_socket_enter_current_state (socket);
 	
 	return socket;
 }
@@ -137,14 +131,25 @@ static void
 io_dlc_socket_free (io_socket_t *socket) {
 	io_socket_close (socket);
 	io_multiplex_socket_free (socket);
-//	io_byte_memory_free (io_get_byte_memory (io_socket_io (socket)),socket);
 }
 
+//
+// provide a state we want to be in
+//
 static bool
-io_dlc_socket_open (io_socket_t *socket) {
-	
-	return true;
+io_dlc_socket_open (io_socket_t *socket,io_socket_open_flag_t flag) {
+	io_event_t *ev = mk_io_socket_open_event (
+		io_socket_byte_memory(socket),IO_SOCKET_OPEN_CONNECT
+	);
+	if (ev) {
+		initialise_io_event (ev,io_dlc_socket_open_event,socket);
+		io_enqueue_event (io_socket_io (socket),ev);
+		return true;
+	} else {
+		return false;
+	}
 }
+
 
 static void
 io_dlc_socket_close (io_socket_t *socket) {

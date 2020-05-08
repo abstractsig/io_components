@@ -18,7 +18,7 @@ typedef struct PACK_STRUCTURE io_mtu_socket {
 #ifdef IMPLEMENT_IO_SOCKET_SEGMENTER
 //-----------------------------------------------------------------------------
 //
-// implementaion
+// implementation
 //
 //-----------------------------------------------------------------------------
 
