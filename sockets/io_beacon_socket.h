@@ -12,33 +12,9 @@
 # endif
 #endif
 
-#define IO_BEACON_FRAME_INNER_ADDRESS_LIMIT	5
-
-typedef struct io_beacon_socket io_beacon_socket_t;
-
-//
-// internal socket that does not support inner bindings
-//
-#define IO_LEAF_SOCKET_STRUCT_MEMBERS \
-	IO_COUNTED_SOCKET_STRUCT_MEMBERS \
-	io_event_t transmit_event; \
-	io_event_t receive_event; \
-	io_encoding_pipe_t *receive_pipe;\
-	io_socket_t *outer_socket; \
-	io_inner_constructor_bindings_t *inner_constructors;\
-	/**/
-
-typedef struct PACK_STRUCTURE {
-	IO_LEAF_SOCKET_STRUCT_MEMBERS
-} io_leaf_socket_t;
-
-bool io_leaf_socket_bind_inner_constructor (io_socket_t *socket,io_address_t address,io_socket_constructor_t make,io_notify_event_t *);
-
-
-struct PACK_STRUCTURE io_beacon_socket {
+typedef struct PACK_STRUCTURE io_beacon_socket {
 	IO_LEAF_SOCKET_STRUCT_MEMBERS
 	
-//	io_event_t open_event;
 	io_event_t close_event;
 	
 	io_time_t interval;
@@ -50,7 +26,7 @@ struct PACK_STRUCTURE io_beacon_socket {
 	io_socket_constructor_t make;
 	io_notify_event_t *notify;
 	
-};
+} io_beacon_socket_t;
 
 io_socket_t* 	allocate_io_beacon_socket (io_t*,io_address_t);
 io_layer_t*		push_io_beacon_transmit_layer (io_encoding_t*);
@@ -76,36 +52,20 @@ cast_to_io_beacon_socket (io_socket_t *socket) {
 //
 //-----------------------------------------------------------------------------
 
-void
-initialise_io_leaf_socket (io_leaf_socket_t *this,io_t *io,io_settings_t const *C) {
+#define IO_BEACON_FRAME_ADDRESS_LIMIT	17
 
-	initialise_io_counted_socket ((io_counted_socket_t*) this,io);
+typedef struct PACK_STRUCTURE io_beacon_frame {
+	uint8_t command;
+	uint8_t uid[IO_UID_BYTE_LENGTH];
+	uint8_t time_at_origin[sizeof(io_time_t)];
+	uint8_t time_of_next_beacon[sizeof(io_time_t)];
+	uint8_t address_buffer[IO_BEACON_FRAME_ADDRESS_LIMIT];	
+} io_beacon_frame_t;
 
-	this->outer_socket = NULL;
-	this->inner_constructors = mk_io_inner_constructor_bindings(io);
-	this->receive_pipe = mk_io_encoding_pipe (
-		io_get_byte_memory(io),io_settings_receive_pipe_length(C)
-	);
-
-}
-
-void
-io_leaf_socket_free (io_socket_t *socket) {
-	io_leaf_socket_t *this = (io_leaf_socket_t *) socket;
-	free_io_encoding_pipe (this->receive_pipe,io_socket_byte_memory(socket));
-	free_io_inner_constructor_bindings (this->inner_constructors,io_socket_io (this));
-	io_counted_socket_free (socket);
-}
-
-bool
-io_leaf_socket_bind_inner_constructor (
-	io_socket_t *socket,io_address_t address,io_socket_constructor_t make,io_notify_event_t *notify
-) {
-	io_leaf_socket_t *this = (io_leaf_socket_t*) socket;
-	return io_inner_constructor_bindings_bind (
-		this->inner_constructors,io_socket_io (this),address,make,notify
-	);
-}
+enum {
+	IO_BEACON_ANNOUNCE_FRAME,
+	IO_BEACON_CONNECT_FRAME,
+};
 
 /*
  *-----------------------------------------------------------------------------
@@ -113,19 +73,22 @@ io_leaf_socket_bind_inner_constructor (
  *
  * beacon states
  *
- *               io_beacon_socket_state_closed <-----.
- *                 |                                 |                             
- *                 v                                 |
- *         .---> io_beacon_socket_state_send_delay   |
- *         |       |                                 |                             
- *         |       v                                 |
- *         |     io_beacon_socket_state_send         |
- *         |       |                                 | 
- *         |       v                                 |
- *         |     io_beacon_socket_state_wait  ->-----+
- *         |       |                                 |                            
- *         |       v                                 |
- *         |     io_beacon_socket_state_sleep ->-----'
+ *               io_beacon_socket_state_closed <-------------.
+ *         <open>  |                                         |
+ *                 +---------------------------------------. |
+ *                 |                                       | |
+ *                 v                                       | |
+ *         .---> io_beacon_socket_state_announce_delay     | |
+ *         |       |                                       | |
+ *         |       v                                       | |
+ *         |     io_beacon_socket_state_announce           | |
+ *         |       |                                       | | 
+ *         |       |                      .----------------' | 
+ *         |       v                      v                  |
+ *         |     io_beacon_socket_state_announce_wait -->----+
+ *         |       |                                         |
+ *         |       v                                         |
+ *         |     io_beacon_socket_state_sleep ->-------------'
  *         |       |                             
  *         `-------'
  *
@@ -133,15 +96,22 @@ io_leaf_socket_bind_inner_constructor (
  *-----------------------------------------------------------------------------
  */
 static EVENT_DATA io_socket_state_t io_beacon_socket_state_closed;
-static EVENT_DATA io_socket_state_t io_beacon_socket_state_send_delay;
-static EVENT_DATA io_socket_state_t io_beacon_socket_state_send;
-static EVENT_DATA io_socket_state_t io_beacon_socket_state_wait;
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce_delay;
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce;
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce_wait;
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_sleep;
 
 static io_socket_state_t const*
 io_beacon_socket_state_closed_open (
 	io_socket_t *socket,io_socket_open_flag_t flag
 ) {
-	return &io_beacon_socket_state_send;
+	switch (flag) {
+		case IO_SOCKET_OPEN_CONNECT:
+			return &io_beacon_socket_state_announce;
+			
+		default:
+			return socket->State;
+	}
 }
 
 static EVENT_DATA io_socket_state_t io_beacon_socket_state_closed = {
@@ -149,62 +119,98 @@ static EVENT_DATA io_socket_state_t io_beacon_socket_state_closed = {
 	.open = io_beacon_socket_state_closed_open,
 };
 
-void
-set_alarm_time (io_t *io,io_alarm_t *alarm,io_time_t delay) {
+INLINE_FUNCTION void
+set_alarm_delay_time (io_t *io,io_alarm_t *alarm,io_time_t delay) {
 	io_time_t t = io_get_time (io);
 	alarm->when = (io_time_t) {t.ns + delay.ns};
 }
 
 static io_socket_state_t const*
-io_beacon_socket_state_send_delay_enter (io_socket_t *socket) {
+io_beacon_socket_state_announce_delay_enter (io_socket_t *socket) {
 	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 	io_t *io = io_socket_io (this);
 	
 	uint32_t rand = io_get_next_prbs_u32(io) % 32;
 	
-	set_alarm_time (io,&this->beacon_timer,millisecond_time(20 + rand));
+	set_alarm_delay_time (io,&this->beacon_timer,millisecond_time(20 + rand));
 	io_enqueue_alarm (io,&this->beacon_timer);
 	
 	return socket->State;
 }
 
 static io_socket_state_t const*
-io_beacon_socket_state_send_delay_done (io_socket_t *socket) {
-	return &io_beacon_socket_state_send;
+io_beacon_socket_state_announce_delay_end (io_socket_t *socket) {
+	return &io_beacon_socket_state_announce;
 }
 
-static EVENT_DATA io_socket_state_t io_beacon_socket_state_send_delay = {
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce_delay = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
-	.enter = io_beacon_socket_state_send_delay_enter,
-	.timer = io_beacon_socket_state_send_delay_done,
+	.enter = io_beacon_socket_state_announce_delay_enter,
+	.timer = io_beacon_socket_state_announce_delay_end,
 };
 
 static io_socket_state_t const*
-io_beacon_socket_state_send_enter (io_socket_t *socket) {
+io_beacon_socket_state_announce_enter (io_socket_t *socket) {
 	io_encoding_t *message = io_socket_new_message (socket);
 	if (message) {
 		io_layer_t *layer = get_io_beacon_layer (message);
 		if (layer) {
+			io_layer_t *outer = io_encoding_get_outer_layer (message,layer);
+			io_beacon_frame_t *frame = io_layer_get_byte_stream (layer,message);
+			frame->command = IO_BEACON_ANNOUNCE_FRAME;	
+			if (outer) {
+				io_layer_set_destination_address (
+					outer,message,io_layer_any_address (outer)
+				);
+			}
 			io_layer_load_header (layer,message);
 			io_socket_send_message (socket,message);
-			return &io_beacon_socket_state_wait;
+			return &io_beacon_socket_state_announce_wait;
 		}
+	} else {
+		io_panic (io_socket_io (socket),IO_PANIC_OUT_OF_MEMORY);
 	}
 	return socket->State;
 }
 
-static EVENT_DATA io_socket_state_t io_beacon_socket_state_send = {
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
-	.enter = io_beacon_socket_state_send_enter,
+	.enter = io_beacon_socket_state_announce_enter,
 };
 
 static io_socket_state_t const*
-io_beacon_socket_state_wait_enter (io_socket_t *socket) {
+io_beacon_socket_state_announce_wait_enter (io_socket_t *socket) {
+	//
+	// start timer ...
+	//
 	return socket->State;
 }
 
+void
+io_beacon_socket_send_connect (io_socket_t *socket,io_address_t to) {
+	io_encoding_t *message = io_socket_new_message (socket);
+	if (message) {
+		io_layer_t *layer = get_io_beacon_layer (message);
+		if (layer) {
+			io_layer_t *outer = io_encoding_get_outer_layer (message,layer);
+			io_beacon_frame_t *frame = io_layer_get_byte_stream (layer,message);
+			frame->command = IO_BEACON_CONNECT_FRAME;
+			//
+			// allocate address and construct socket
+			//
+			if (outer) {
+				io_layer_set_destination_address (outer,message,to);
+			}
+			io_layer_load_header (layer,message);
+			io_socket_send_message (socket,message);
+		}
+	} else {
+		io_panic (io_socket_io (socket),IO_PANIC_OUT_OF_MEMORY);
+	}
+}
+
 static io_socket_state_t const*
-io_beacon_socket_state_wait_receive (io_socket_t *socket) {
+io_beacon_socket_state_announce_wait_receive (io_socket_t *socket) {
 	io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 	io_encoding_t *next;
 	
@@ -212,6 +218,20 @@ io_beacon_socket_state_wait_receive (io_socket_t *socket) {
 		io_layer_t *layer = get_io_beacon_layer (next);
 		io_layer_t *outer = io_encoding_get_outer_layer (next,layer);
 		if (outer) {
+			io_beacon_frame_t *frame = io_layer_get_byte_stream (layer,next);
+			
+			switch (frame->command) {
+				case IO_BEACON_ANNOUNCE_FRAME:
+					
+					io_beacon_socket_send_connect (
+						socket,io_layer_get_source_address (outer,next)
+					);
+				break;
+				
+				default:
+				break;
+			}
+			
 			io_layer_get_source_address (outer,next);
 		}
 	
@@ -222,20 +242,22 @@ io_beacon_socket_state_wait_receive (io_socket_t *socket) {
 }
 
 static io_socket_state_t const*
-io_beacon_socket_state_wait_transmit (io_socket_t *socket) {
+io_beacon_socket_state_announce_wait_transmit (io_socket_t *socket) {
 	return socket->State;
 }
 
-static EVENT_DATA io_socket_state_t io_beacon_socket_state_wait = {
+static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce_wait = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
-	.enter = io_beacon_socket_state_wait_enter,
-	.receive = io_beacon_socket_state_wait_receive,
-	.transmit = io_beacon_socket_state_wait_transmit,
+	.enter = io_beacon_socket_state_announce_wait_enter,
+	.receive = io_beacon_socket_state_announce_wait_receive,
+	.transmit = io_beacon_socket_state_announce_wait_transmit,
 };
 
+//-----------------------------------------------------------------------------
 //
 // now the socket
 //
+//-----------------------------------------------------------------------------
 static void
 io_beacon_socket_beacon_timer_event (io_event_t *ev) {
 	io_socket_t *socket = ev->user_value;
@@ -278,9 +300,7 @@ io_beacon_socket_outer_receive_event (io_event_t *ev) {
 }
 
 static void
-io_beacon_socket_open_event (io_event_t *ev) {
-//	io_socket_t *this = ev->user_value;
-//	io_socket_call_state (this,this->State->open);
+io_socket_open_event (io_event_t *ev) {
 	io_socket_open_event_t *open = (io_socket_open_event_t*) ev;	
 	io_socket_t *socket = ev->user_value;
 	io_socket_call_open (socket,open->flag);
@@ -362,10 +382,8 @@ io_beacon_socket_open (io_socket_t *socket,io_socket_open_flag_t flag) {
 		&& this->outer_socket 
 		&& io_socket_open (this->outer_socket,flag)
 	) {
-		io_event_t *ev = mk_io_socket_open_event (
-			io_socket_byte_memory(socket),IO_SOCKET_OPEN_CONNECT
-		);
-		initialise_io_event (ev,io_beacon_socket_open_event,this);
+		io_event_t *ev = mk_io_socket_open_event (io_socket_byte_memory(socket),flag);
+		initialise_io_event (ev,io_socket_open_event,this);
 		io_enqueue_event (io_socket_io(this),ev);
 		return true;
 	} else {
@@ -396,11 +414,8 @@ io_beacon_socket_new_message (io_socket_t *socket) {
 		if (beacon) {
 			io_layer_t *outer = io_encoding_get_outer_layer (message,beacon);
 			if (outer) {
-				io_layer_set_destination_address (
-					outer,message,io_layer_any_address(outer)
-				);
 				io_layer_set_inner_address (
-					outer,message,io_socket_address(socket)
+					outer,message,io_socket_address (socket)
 				);
 			}
 		} else {
@@ -493,12 +508,6 @@ typedef struct PACK_STRUCTURE {
 	IO_LAYER_STRUCT_PROPERTIES
 } io_beacon_layer_t;
 
-typedef struct PACK_STRUCTURE io_beacon_frame {
-	uint8_t inner_address[IO_BEACON_FRAME_INNER_ADDRESS_LIMIT];
-	uint8_t uid[IO_UID_BYTE_LENGTH];
-	uint8_t time[sizeof(io_time_t)];
-} io_beacon_frame_t;
-
 static io_beacon_layer_t*
 mk_io_beacon_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 	extern EVENT_DATA io_layer_implementation_t io_beacon_layer_implementation;
@@ -536,8 +545,8 @@ mk_io_beacon_receive_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 		io_beacon_frame_t *frame = io_layer_get_byte_stream ((io_layer_t*) this,packet);
 
 		io_address_t address;
-		uint8_t *read_cursor = frame->inner_address;
-		uint8_t *end_of_buffer = read_cursor + IO_BEACON_FRAME_INNER_ADDRESS_LIMIT;
+		uint8_t *read_cursor = frame->address_buffer;
+		uint8_t *end_of_buffer = read_cursor + IO_BEACON_FRAME_ADDRESS_LIMIT;
 	
 		address = io_invalid_address();
 		read_cursor += read_le_io_address (bm,read_cursor,end_of_buffer - read_cursor,&address);
@@ -582,14 +591,14 @@ io_beacon_layer_load_header (io_layer_t *layer,io_encoding_t *encoding) {
 	if (io) {
 	
 		if (
-			IO_BEACON_FRAME_INNER_ADDRESS_LIMIT >= write_le_io_address (
-				frame->inner_address,
-				IO_BEACON_FRAME_INNER_ADDRESS_LIMIT,
+			IO_BEACON_FRAME_ADDRESS_LIMIT >= write_le_io_address (
+				frame->address_buffer,
+				IO_BEACON_FRAME_ADDRESS_LIMIT,
 				io_layer_get_inner_address (layer,encoding)
 			)
 		) {
 			memcpy (frame->uid,io_uid (io)->bytes,IO_UID_BYTE_LENGTH);
-			memcpy (frame->time,io_get_time (io).bytes,IO_UID_BYTE_LENGTH);
+			memcpy (frame->time_at_origin,io_get_time (io).bytes,IO_UID_BYTE_LENGTH);
 			return true;
 		}
 	}

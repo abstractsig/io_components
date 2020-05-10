@@ -50,14 +50,25 @@ io_layer_t* push_io_dlc_transmit_layer (io_encoding_t*);
  *
  * dlc socket states
  *
- *           io_dlc_socket_state_closed
- *             | 
- *             +--------------------------------. 
- *             v                                v
- *           io_dlc_socket_state_open_listen  io_dlc_socket_state_open_connect
- *             | 
- *             v
- *               
+ *               io_dlc_socket_state_closed <----------------.
+ *         <open>  |                                         |
+ *                 +---------------------------------------. |
+ *                 |                                       | |
+ *                 v                                       | |
+ *         .---> io_dlc_socket_state_announce_delay        | |
+ *         |       |                                       | |
+ *         |       v                                       | |
+ *         |     io_dlc_socket_state_announce              | |
+ *         |       |                                       | | 
+ *         |       |                      .----------------' | 
+ *         |       v                      v                  |
+ *         |     io_dlc_socket_state_announce_wait -->-------+
+ *         |       |                                         |
+ *         |       v                                         |
+ *         |     io_dlc_socket_state_sleep ->----------------'
+ *         |       |                             
+ *         `-------'
+ *
  *
  *-----------------------------------------------------------------------------
  *-----------------------------------------------------------------------------
