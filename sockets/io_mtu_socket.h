@@ -76,9 +76,10 @@ io_mtu_socket_bind_to_outer_socket (io_socket_t *socket,io_socket_t *outer) {
 }
 
 EVENT_DATA io_socket_implementation_t io_mtu_socket_implementation = {
-	.specialisation_of = &io_socket_implementation_base,
+	SPECIALISE_IO_ADAPTER_SOCKET_IMPLEMENTATION (
+		&io_adapter_socket_implementation
+	)
 	.initialise = io_mtu_socket_initialise,
-	.reference = io_counted_socket_increment_reference,
 	.free = io_mtu_socket_free,
 	.open = io_mtu_socket_open,
 	.close = io_mtu_socket_close,
@@ -87,8 +88,6 @@ EVENT_DATA io_socket_implementation_t io_mtu_socket_implementation = {
 	.bind_to_outer_socket = io_mtu_socket_bind_to_outer_socket,
 	.new_message = io_mtu_socket_new_message,
 	.send_message = io_mtu_socket_send_message,
-	.iterate_inner_sockets = NULL,
-	.iterate_outer_sockets = NULL,
 	.mtu = io_adapter_socket_mtu,
 };
 

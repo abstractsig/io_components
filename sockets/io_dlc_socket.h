@@ -200,23 +200,15 @@ io_dlc_socket_constructor (io_t *io,io_address_t a,io_socket_t **outer,io_socket
 }
 
 EVENT_DATA io_socket_implementation_t io_dlc_socket_implementation = {
-	.specialisation_of = &io_multiplexer_socket_implementation,
+	SPECIALISE_IO_MULTIPLEXER_SOCKET_IMPLEMENTATION (
+		&io_multiplexer_socket_implementation
+	)
 	.initialise = io_dlc_socket_initialise,
-	.reference = io_counted_socket_increment_reference,
 	.free = io_dlc_socket_free,
 	.open = io_dlc_socket_open,
 	.close = io_dlc_socket_close,
 	.is_closed = io_dlc_socket_is_closed,
-	.bind_inner = io_multiplex_socket_bind_inner,
-	.unbind_inner = io_multiplex_socket_unbind_inner,
-	.bind_inner_constructor = io_virtual_socket_bind_inner_constructor,
-	.bind_to_outer_socket = io_multiplexer_socket_bind_to_outer,
 	.new_message = io_dlc_socket_new_message,
-	.send_message = io_multiplexer_socket_send_message,
-	.get_receive_pipe = io_multiplex_socket_get_receive_pipe,
-	.iterate_inner_sockets = NULL,
-	.iterate_outer_sockets = NULL,
-	.mtu = io_multiplexer_socket_mtu,
 };
 
 io_socket_t*
