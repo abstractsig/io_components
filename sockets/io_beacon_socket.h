@@ -936,8 +936,9 @@ get_io_beacon_layer (io_encoding_t *encoding) {
 }
 
 #endif /* IMPLEMENT_IO_BEACON_SOCKET */
+
 #ifdef IMPLEMENT_VERIFY_IO_BEACON_SOCKET
-#define IMPLEMENT_IO_DLC_SOCKET
+#include <io_verify.h>
 #include <sockets/io_dlc_socket.h>
 
 void
