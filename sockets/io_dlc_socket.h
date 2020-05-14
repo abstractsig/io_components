@@ -358,6 +358,7 @@ push_io_dlc_transmit_layer (io_encoding_t *encoding) {
 
 #endif /* IMPLEMENT_IO_DLC_SOCKET */
 #ifdef IMPLEMENT_VERIFY_IO_DLC_SOCKET
+#include <io_verify.h>
 
 UNIT_SETUP(setup_io_dlc_socket_unit_test) {
 	return VERIFY_UNIT_CONTINUE;

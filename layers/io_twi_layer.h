@@ -150,14 +150,16 @@ EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 	.append_bytes = io_binary_encoding_append_bytes,
 	.pop_last_byte = io_binary_encoding_pop_last_byte,
 	.print = io_binary_encoding_print,
-	.reset = io_binary_encoding_reset,//
+	.reset = io_binary_encoding_reset,
 	.get_byte_stream = io_binary_encoding_get_byte_stream,
 	.get_content = io_binary_encoding_get_content,
 	.length = io_binary_encoding_length,
 	.limit = io_binary_encoding_nolimit,
 };
 #endif /* IMPLEMENT_IO_TWI_LAYER */
-#ifdef IMPLEMENT_VERIFY_IO_TWI_LAYER
+#ifdef IMPLEMENT_VERIFY_IO_CORE_TWI_LAYER
+#include <io_verify.h>
+
 
 TEST_BEGIN(test_io_twi_packet_encoding_1) {
 	io_byte_memory_t *bm = io_get_byte_memory (TEST_IO);
@@ -205,7 +207,7 @@ UNIT_TEARDOWN(teardown_io_twi_layer_unit_test) {
 }
 
 void
-io_twi_layer_unit_test (V_unit_test_t *unit) {
+io_core_twi_layer_unit_test (V_unit_test_t *unit) {
 	static V_test_t const tests[] = {
 		test_io_twi_packet_encoding_1,
 		0
@@ -217,10 +219,16 @@ io_twi_layer_unit_test (V_unit_test_t *unit) {
 	unit->teardown = teardown_io_twi_layer_unit_test;
 }
 
-# define IO_TWI_LAYER_UNIT_TESTS io_twi_layer_unit_test,
-#else
-# define IO_TWI_LAYER_UNIT_TESTS
-#endif
+void
+run_ut_io_core_twi_layer (V_runner_t *runner) {
+	static const unit_test_t test_set[] = {
+		io_core_twi_layer_unit_test,
+		0
+	};
+	V_run_unit_tests(runner,test_set);
+}
+
+#endif /* IMPLEMENT_VERIFY_IO_CORE_TWI_LAYER */
 #endif
 /*
 ------------------------------------------------------------------------------
