@@ -95,7 +95,11 @@ io_beacon_socket_send_connect (io_socket_t *socket,io_address_t to) {
 		if (layer) {
 			io_layer_t *outer = io_encoding_get_outer_layer (message,layer);
 			io_beacon_frame_t *frame = io_layer_get_byte_stream (layer,message);
+			io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
+
 			frame->command = IO_BEACON_CONNECT_FRAME;
+			memcpy (frame->uid,this->uid.bytes,IO_UID_BYTE_LENGTH);
+
 			if (outer) {
 				io_layer_set_destination_address (outer,message,to);
 			}
@@ -112,7 +116,6 @@ io_beacon_socket_send_connect (io_socket_t *socket,io_address_t to) {
 			io_socket_send_message (socket,message);
 			#if defined(IO_BEACON_SOCKET_LOG_LEVEL)
 			{
-				io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 				io_log (
 					io_socket_io (this),
 					IO_BEACON_SOCKET_LOG_LEVEL,
@@ -159,13 +162,19 @@ io_beacon_socket_receive_announce (io_socket_t *socket) {
 					);
 
 					#if defined(IO_BEACON_SOCKET_LOG_LEVEL)
-					io_log (
-						io_socket_io (this),
-						IO_BEACON_SOCKET_LOG_LEVEL,
-						"%-*s%-*sreceive announce\n",
-						DBP_FIELD1,BEACON_LOG_NAME(this),
-						DBP_FIELD2,this->State->name
-					);
+					{
+						char id[DBP_FIELD1];
+						uint32_t last = read_le_uint32 (frame->uid + 12);
+						stbsp_snprintf (id,DBP_FIELD1,"%04x",(uint16_t) last);
+						io_log (
+							io_socket_io (this),
+							IO_BEACON_SOCKET_LOG_LEVEL,
+							"%-*s%-*sreceive announce from :%s\n",
+							DBP_FIELD1,BEACON_LOG_NAME(this),
+							DBP_FIELD2,this->State->name,
+							id
+						);
+					}
 					#endif
 
 					io_inner_constructor_binding_t *binding = io_leaf_socket_find_inner_constructor (socket,type);
@@ -320,10 +329,10 @@ io_beacon_socket_state_announce_enter (io_socket_t *socket) {
 				io_beacon_socket_t *this = (io_beacon_socket_t*) socket;
 
 				frame->command = IO_BEACON_ANNOUNCE_FRAME;	
+				memcpy (frame->uid,this->uid.bytes,IO_UID_BYTE_LENGTH);
 				write_le_io_address (
 					frame->address_buffer,IO_BEACON_FRAME_ADDRESS_LIMIT,IO_DLC_LAYER_ID
 				);
-				memcpy (frame->uid,this->uid.bytes,IO_UID_BYTE_LENGTH);
 				
 				io_layer_load_header (layer,message);
 				io_socket_send_message (socket,message);
@@ -412,13 +421,19 @@ io_beacon_socket_state_announce_wait_receive (io_socket_t *socket) {
 			switch (frame->command) {
 				case IO_BEACON_CONNECT_FRAME:
 					#if defined(IO_BEACON_SOCKET_LOG_LEVEL)
-					io_log (
-						io_socket_io (this),
-						IO_BEACON_SOCKET_LOG_LEVEL,
-						"%-*s%-*sreceive connect\n",
-						DBP_FIELD1,BEACON_LOG_NAME(this),
-						DBP_FIELD2,this->State->name
-					);
+					{
+						char id[DBP_FIELD1];
+						uint32_t last = read_le_uint32 (frame->uid + 12);
+						stbsp_snprintf (id,DBP_FIELD1,"%04x",(uint16_t) last);
+						io_log (
+							io_socket_io (this),
+							IO_BEACON_SOCKET_LOG_LEVEL,
+							"%-*s%-*sreceive connect from :%s\n",
+							DBP_FIELD1,BEACON_LOG_NAME(this),
+							DBP_FIELD2,this->State->name,
+							id
+						);
+					}
 					#endif
 					io_beacon_socket_connect_to_remote (this,next);
 				break;
@@ -849,7 +864,7 @@ io_beacon_layer_load_header (io_layer_t *layer,io_encoding_t *encoding) {
 	io_t *io = io_encoding_get_io (encoding);
 	
 	if (io) {
-		memcpy (frame->time_at_origin,io_get_time (io).bytes,IO_UID_BYTE_LENGTH);
+		memcpy (frame->time_at_origin,io_get_time (io).bytes,sizeof(io_time_t));
 		return true;
 	}
 
@@ -1017,7 +1032,7 @@ TEST_BEGIN(test_io_beacon_socket_1) {
 			NULL
 		)
 	) {
-		io_uid_t u = {.words = {1,0,0,0}};
+		io_uid_t u = {.words = {0,0,0,1}};
 		
 		//TEST_IO->log_level = IO_DETAIL_LOG_LEVEL;
 		
