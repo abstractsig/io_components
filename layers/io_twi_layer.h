@@ -7,6 +7,25 @@
 #define io_twi_layer_H_
 #include <io_core.h>
 
+#define IO_TWI_MASTER_SOCKET_STRUCT_MEMBERS \
+	IO_MULTIPLEX_SOCKET_STRUCT_MEMBERS \
+	io_encoding_implementation_t const *encoding; \
+	io_encoding_pipe_t *tx_pipe;
+	/**/
+
+typedef struct PACK_STRUCTURE io_twi_master_socket {
+	IO_TWI_MASTER_SOCKET_STRUCT_MEMBERS
+} io_twi_master_socket_t;
+
+io_socket_t* io_twi_master_socket_initialise (io_socket_t*,io_t*,io_settings_t const*);
+void io_twi_master_socket_free_memory (io_twi_master_socket_t*);
+io_encoding_t* io_twi_master_new_message (io_socket_t*);
+
+#define  SPECIALISE_IO_TWI_MASTER_SOCKET_IMPLEMENTATION(S) \
+	SPECIALISE_IO_MULTIPLEX_SOCKET_IMPLEMENTATION (S)\
+	.new_message = io_twi_master_new_message, \
+	/**/
+
 typedef struct PACK_STRUCTURE io_twi_transfer {
 	IO_LAYER_STRUCT_PROPERTIES
 	struct {
@@ -42,6 +61,47 @@ io_layer_t* push_io_twi_transmit_layer (io_encoding_t*);
 // implementation
 //
 //-----------------------------------------------------------------------------
+io_socket_t*
+io_twi_master_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
+	io_twi_master_socket_t *this = (io_twi_master_socket_t*) socket;
+
+	initialise_io_multiplex_socket (socket,io,C);
+	this->encoding = C->encoding;
+
+	this->tx_pipe = mk_io_encoding_pipe (
+		io_get_byte_memory(io),io_settings_transmit_pipe_length(C)
+	);
+
+	return socket;
+}
+
+void
+io_twi_master_socket_free_memory (io_twi_master_socket_t *this) {
+
+	// free mux memory ...
+	
+	free_io_encoding_pipe (this->tx_pipe,io_socket_byte_memory(this));
+}
+
+
+io_encoding_t*
+io_twi_master_new_message (io_socket_t *socket) {
+	io_twi_master_socket_t *this = (io_twi_master_socket_t*) socket;
+	io_encoding_t *message = new_io_encoding (
+		this->encoding,io_get_byte_memory (io_socket_io (socket))
+	);
+
+	if (message != NULL) {
+		io_layer_t *layer = push_io_twi_transmit_layer (message);
+		if (layer != NULL) {
+			io_layer_set_source_address (layer,message,io_socket_address(socket));
+		} else {
+			io_panic (io_socket_io (socket),IO_PANIC_OUT_OF_MEMORY);
+		}
+	}
+
+	return reference_io_encoding (message);
+}
 
 static io_twi_transfer_t*
 mk_twi_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
@@ -158,8 +218,12 @@ EVENT_DATA io_encoding_implementation_t io_twi_encoding_implementation = {
 };
 #endif /* IMPLEMENT_IO_TWI_LAYER */
 #ifdef IMPLEMENT_VERIFY_IO_CORE_TWI_LAYER
+//-----------------------------------------------------------------------------
+//
+// test implementation
+//
+//-----------------------------------------------------------------------------
 #include <io_verify.h>
-
 
 TEST_BEGIN(test_io_twi_packet_encoding_1) {
 	io_byte_memory_t *bm = io_get_byte_memory (TEST_IO);
