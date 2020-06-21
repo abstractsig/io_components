@@ -7,6 +7,10 @@
 #define io_twi_layer_H_
 #include <io_core.h>
 
+//
+// master socket
+//
+
 #define IO_TWI_MASTER_SOCKET_STRUCT_MEMBERS \
 	IO_MULTIPLEX_SOCKET_STRUCT_MEMBERS \
 	io_encoding_implementation_t const *encoding; \
@@ -26,6 +30,20 @@ io_encoding_t* io_twi_master_new_message (io_socket_t*);
 	.new_message = io_twi_master_new_message, \
 	/**/
 
+//
+// slave adapter socket
+//
+
+io_encoding_t* io_twi_slave_adapter_new_message (io_socket_t*);
+
+#define SPECIALISE_IO_TWI_SLAVE_ADAPTER_SOCKET_IMPLEMENTATION(S) \
+	SPECIALISE_IO_ADAPTER_SOCKET_IMPLEMENTATION (S)\
+	.new_message = io_twi_slave_adapter_new_message, \
+	/**/
+
+//
+//
+//
 typedef struct PACK_STRUCTURE io_twi_transfer {
 	IO_LAYER_STRUCT_PROPERTIES
 	struct {
@@ -61,6 +79,11 @@ io_layer_t* push_io_twi_transmit_layer (io_encoding_t*);
 // implementation
 //
 //-----------------------------------------------------------------------------
+
+//
+// master socket
+//
+
 io_socket_t*
 io_twi_master_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
 	io_twi_master_socket_t *this = (io_twi_master_socket_t*) socket;
@@ -83,7 +106,6 @@ io_twi_master_socket_free_memory (io_twi_master_socket_t *this) {
 	free_io_encoding_pipe (this->tx_pipe,io_socket_byte_memory(this));
 }
 
-
 io_encoding_t*
 io_twi_master_new_message (io_socket_t *socket) {
 	io_twi_master_socket_t *this = (io_twi_master_socket_t*) socket;
@@ -103,6 +125,35 @@ io_twi_master_new_message (io_socket_t *socket) {
 	return reference_io_encoding (message);
 }
 
+//
+// slave adapter socket
+//
+
+io_encoding_t*
+io_twi_slave_adapter_new_message (io_socket_t *socket) {
+	io_adapter_socket_t *this = (io_adapter_socket_t*) socket;
+	io_encoding_t *message = reference_io_encoding (
+		io_socket_new_message (this->outer_socket)
+	);
+
+	io_layer_t *layer = get_twi_layer (message);
+	if (layer != NULL) {
+		io_layer_set_destination_address (layer,message,io_socket_address(this));
+	}
+
+	return message;
+}
+
+EVENT_DATA io_socket_implementation_t io_twi_slave_adapter_implementation = {
+	SPECIALISE_IO_ADAPTER_SOCKET_IMPLEMENTATION (
+		&io_adapter_socket_implementation
+	)
+	.new_message = io_twi_slave_adapter_new_message,
+};
+
+//
+// the layer
+//
 static io_twi_transfer_t*
 mk_twi_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
 	io_twi_transfer_t *this = io_byte_memory_allocate (
@@ -153,9 +204,25 @@ twi_layer_set_source_address (
 	return false;
 }
 
+static bool
+twi_layer_set_destination_address (
+	io_layer_t *layer,io_encoding_t *message,io_address_t local
+) {
+	io_twi_transfer_t *cmd = get_twi_layer (message);
+	if (cmd) {
+		io_twi_transfer_bus_address (cmd) = io_u8_address_value (local);
+		return true;
+	} else {
+		return false;
+	}
+}
+
 EVENT_DATA io_layer_implementation_t io_twi_layer_implementation = {
-	.specialisation_of = NULL,
+	SPECIALISE_IO_LAYER_IMPLEMENTATION (&io_layer_implementation)
 	.free = free_twi_layer,
+	.set_source_address = twi_layer_set_source_address,
+	.set_destination_address = twi_layer_set_destination_address,
+/*
 	.any = NULL,
 	.push_receive_layer = NULL,
 	.select_inner_binding = NULL,
@@ -163,11 +230,10 @@ EVENT_DATA io_layer_implementation_t io_twi_layer_implementation = {
 	.match_address =  NULL,
 	.load_header = NULL,
 	.get_destination_address = NULL,
-	.set_destination_address = NULL,
 	.get_source_address = NULL,
-	.set_source_address = twi_layer_set_source_address,
 	.get_inner_address = NULL,
 	.set_inner_address = NULL,
+*/
 };
 
 io_layer_t*
