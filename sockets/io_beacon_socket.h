@@ -851,7 +851,7 @@ io_beacon_layer_push_receive_layer (io_layer_t *layer,io_encoding_t *encoding) {
 	return push_io_beacon_receive_layer (encoding);
 }
 
-static io_inner_port_binding_t*
+static io_inner_binding_t*
 io_beacon_layer_select_inner_binding (
 	io_layer_t *layer,io_encoding_t *encoding,io_socket_t* socket
 ) {

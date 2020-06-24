@@ -217,11 +217,24 @@ twi_layer_set_destination_address (
 	}
 }
 
+static io_address_t
+twi_layer_get_destination_address (
+	io_layer_t *layer,io_encoding_t *message
+) {
+	io_twi_transfer_t *cmd = get_twi_layer (message);
+	if (cmd) {
+		return def_io_u8_address(io_twi_transfer_bus_address (cmd));
+	} else {
+		return io_invalid_address();
+	}
+}
+
 EVENT_DATA io_layer_implementation_t io_twi_layer_implementation = {
 	SPECIALISE_IO_LAYER_IMPLEMENTATION (&io_layer_implementation)
 	.free = free_twi_layer,
 	.set_source_address = twi_layer_set_source_address,
 	.set_destination_address = twi_layer_set_destination_address,
+	.get_destination_address = twi_layer_get_destination_address,
 /*
 	.any = NULL,
 	.push_receive_layer = NULL,
@@ -229,7 +242,6 @@ EVENT_DATA io_layer_implementation_t io_twi_layer_implementation = {
 	.get_content = NULL,
 	.match_address =  NULL,
 	.load_header = NULL,
-	.get_destination_address = NULL,
 	.get_source_address = NULL,
 	.get_inner_address = NULL,
 	.set_inner_address = NULL,
