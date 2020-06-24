@@ -90,7 +90,7 @@ static EVENT_DATA io_dlc_socket_state_t io_dlc_socket_state_closed = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
 	.enter = io_dlc_socket_state_closed_enter,
 	.enter = io_dlc_socket_state_closed_enter,
-	.receive = io_dlc_socket_state_closed_receive,
+	.outer_receive_event = io_dlc_socket_state_closed_receive,
 };
 
 //

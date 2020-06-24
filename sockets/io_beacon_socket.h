@@ -309,7 +309,7 @@ static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce_delay = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
 	.name = "announce delay",
 	.enter = io_beacon_socket_state_announce_delay_enter,
-	.receive = io_beacon_socket_state_announce_delay_receive,
+	.outer_receive_event = io_beacon_socket_state_announce_delay_receive,
 	.timer = io_beacon_socket_state_announce_delay_end,
 };
 
@@ -459,7 +459,7 @@ static EVENT_DATA io_socket_state_t io_beacon_socket_state_announce_wait = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
 	.name = "announce wait",
 	.enter = io_beacon_socket_state_announce_wait_enter,
-	.receive = io_beacon_socket_state_announce_wait_receive,
+	.outer_receive_event = io_beacon_socket_state_announce_wait_receive,
 	.timer = io_beacon_socket_state_announce_wait_delay_end,
 };
 
@@ -505,7 +505,7 @@ static EVENT_DATA io_socket_state_t io_beacon_socket_state_listen = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
 	.name = "listen",
 	.enter = io_beacon_socket_state_listen_enter,
-	.receive = io_beacon_socket_state_listen_receive,
+	.outer_receive_event = io_beacon_socket_state_listen_receive,
 	.timer = io_beacon_socket_state_listen_delay_end,
 };
 
@@ -542,7 +542,7 @@ io_beacon_socket_timer_error (io_event_t *ev) {
 static void
 io_beacon_socket_outer_transmit_event (io_event_t *ev) {
 	io_socket_t *socket = ev->user_value;
-	io_socket_call_state (socket,socket->State->transmit);
+	io_socket_call_state (socket,socket->State->outer_transmit_event);
 }
 
 static void
@@ -561,7 +561,9 @@ io_beacon_socket_outer_receive_event (io_event_t *ev) {
 				io_layer_t *base = push_io_beacon_receive_layer (next);
 				if (base) {
 					if (io_encoding_pipe_put_encoding (this->receive_pipe,next)) {
-						io_socket_call_state ((io_socket_t*)this,this->State->receive);
+						io_socket_call_state (
+							(io_socket_t*)this,this->State->outer_receive_event
+						);
 					}
 				}
 				io_encoding_pipe_pop_encoding (rx);
