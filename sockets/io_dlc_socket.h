@@ -307,7 +307,7 @@ io_dlc_layer_set_destination_address (
 
 static io_layer_t*
 io_dlc_layer_push_receive_layer (io_layer_t *layer,io_encoding_t *encoding) {
-	return io_encoding_push_layer_2 (encoding,mk_io_dlc_receive_layer);
+	return io_encoding_push_layer (encoding,mk_io_dlc_receive_layer);
 }
 
 static io_inner_binding_t*
@@ -350,7 +350,7 @@ EVENT_DATA io_layer_implementation_t io_dlc_layer_implementation = {
 
 io_layer_t*
 push_io_dlc_transmit_layer (io_encoding_t *encoding) {
-	return io_encoding_push_layer_2 (
+	return io_encoding_push_layer (
 		encoding,mk_io_dlc_transmit_layer
 	);
 }

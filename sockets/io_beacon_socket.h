@@ -934,7 +934,7 @@ EVENT_DATA io_layer_implementation_t io_beacon_layer_implementation = {
 
 io_layer_t*
 push_io_beacon_transmit_layer (io_encoding_t *encoding) {
-	return io_encoding_push_layer_2 (encoding,mk_io_beacon_transmit_layer);
+	return io_encoding_push_layer (encoding,mk_io_beacon_transmit_layer);
 }
 
 io_layer_t*
@@ -942,7 +942,7 @@ push_io_beacon_receive_layer (io_encoding_t *encoding) {
 	//
 	// we also decode encoding ...
 	//
-	return io_encoding_push_layer_2 (encoding,mk_io_beacon_receive_layer);
+	return io_encoding_push_layer (encoding,mk_io_beacon_receive_layer);
 }
 
 io_layer_t*
