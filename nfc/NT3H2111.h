@@ -3,8 +3,8 @@
  * Two wire ntag
  *
  */
-#ifndef NT3H2111_H_
-#define NT3H2111_H_
+#ifndef nfc_NT3H2111_H_
+#define nfc_NT3H2111_H_
 
 
 typedef struct PACK_STRUCTURE nt3h2111_io_socket {
