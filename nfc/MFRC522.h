@@ -5,12 +5,48 @@
 #ifndef nfc_MRFC522_H_
 #define nfc_MRFC522_H_
 
+//
+// no inner bindings
+//
+typedef struct PACK_STRUCTURE mfrc522_io_socket {
+	IO_COUNTED_SOCKET_STRUCT_MEMBERS
+	
+	io_event_t receive_data_available;
+	io_event_t transmit_available;
+	
+	io_pin_t reset_pin;
+	
+} mfrc522_io_socket_t;
+
+extern EVENT_DATA io_socket_implementation_t mfrc522_io_socket_implementation;
+
 #ifdef IMPLEMENT_IO_DEVICE
 //-----------------------------------------------------------------------------
 //
 // implementation
 //
 //-----------------------------------------------------------------------------
+
+
+io_socket_t*
+mfrc522_io_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
+	mfrc522_io_socket_t *this = (mfrc522_io_socket_t*) socket;
+
+	initialise_io_socket (socket,io);
+	
+	io_set_pin_to_output (io,this->reset_pin);
+	
+	return socket;
+}
+
+
+EVENT_DATA io_socket_implementation_t mfrc522_io_socket_implementation = {
+	SPECIALISE_IO_COUNTED_SOCKET_IMPLEMENTATION (
+		&io_counted_socket_implementation
+	)
+	.initialise = mfrc522_io_socket_initialise,
+};
+
 
 #endif /* IMPLEMENT_IO_DEVICE */
 #endif
