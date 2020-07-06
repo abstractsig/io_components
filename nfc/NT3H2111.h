@@ -52,19 +52,6 @@ static EVENT_DATA io_socket_state_t nt3h2111_io_socket_state_closed = {
 	.open = nt3h2111_io_socket_state_closed_open,
 };
 
-int64_t
-read_le_int48 (uint8_t const *ptr8) {
-	return (int64_t) (
-			(uint64_t)ptr8[0]
-		+	((uint64_t)ptr8[1] << 8ULL)
-		+	((uint64_t)ptr8[2] << 16ULL)
-		+	((uint64_t)ptr8[3] << 24ULL)
-		+	((uint64_t)ptr8[4] << 32ULL)
-		+	((uint64_t)ptr8[5] << 40ULL)
-	);
-}
-
-
 io_socket_state_t const*
 nt3h2111_io_socket_state_open_outer_receive_event (io_socket_t *socket) {
 	io_process_socket_t *this = (io_process_socket_t*) socket;
