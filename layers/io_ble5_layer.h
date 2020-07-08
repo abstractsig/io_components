@@ -95,10 +95,15 @@ io_ble5_socket_implementation = {
 	.initialise = io_ble5_socket_initialise,
 };
 
+static void
+free_io_ble5_layer (io_layer_t *layer,io_byte_memory_t *bm) {
+	io_byte_memory_free (bm,layer);
+}
 
 EVENT_DATA io_layer_implementation_t
 io_ble5_layer_implementation = {
 	SPECIALISE_IO_LAYER_IMPLEMENTATION (&io_layer_implementation)
+	.free = free_io_ble5_layer,
 };
 
 io_layer_t*
