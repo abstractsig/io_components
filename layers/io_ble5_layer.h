@@ -6,9 +6,11 @@
 #ifndef io_bluetooth_layer_H_
 #define io_bluetooth_layer_H_
 
+//
+// ble5 data link layer
+//
 typedef struct PACK_STRUCTURE io_ble5_socket {
 	IO_LEAF_SOCKET_STRUCT_MEMBERS
-	io_encoding_implementation_t const *encoding;
 } io_ble5_socket_t;
 
 extern EVENT_DATA io_socket_implementation_t io_ble5_socket_implementation;
@@ -73,8 +75,6 @@ io_ble5_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) 
 	io_ble5_socket_t *this = (io_ble5_socket_t*) socket;
 
 	initialise_io_leaf_socket ((io_leaf_socket_t*) this,io,C);
-
-	this->encoding = C->encoding;
 
 	initialise_io_event (
 		&this->receive_event,io_ble5_socket_outer_receive_event,this
