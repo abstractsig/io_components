@@ -1,7 +1,7 @@
 /*
  *
  * io graphics context for the ssd1306 display controller connected
- * via a I2C or SPI socket.
+ * via a TWI or SPI socket.
  *
  */
 #ifndef io_ssd1306_H_
@@ -28,10 +28,12 @@ typedef struct PACK_STRUCTURE ssd1306_io_graphics_context {
 
 
 io_graphics_context_t* mk_ssd1306_io_graphics_context (io_t*,io_socket_t*,uint32_t,uint32_t,uint32_t);
-io_graphics_context_t* mk_ssd1306_io_graphics_context_twi (io_t*,io_socket_t*,uint32_t,uint32_t,uint32_t,uint32_t);
+io_graphics_context_t* mk_ssd1306_io_graphics_context_twi (io_t*,io_socket_t*,uint32_t,uint32_t,uint32_t);
+
+#define SSD1306_TWI_ADDRESS					0x3c
 
 
-#ifdef IMPLEMENT_IO_COMPONENT_GRAPHICS_SSD1306
+#ifdef IMPLEMENT_IO_GRAPHICS
 
 //-----------------------------------------------------------------------------
 //
@@ -233,7 +235,6 @@ ssd1306_io_graphics_context_render_spi (io_graphics_context_t *gfx) {
 
 typedef struct PACK_STRUCTURE ssd1306_io_graphics_context_twi {
 	SSD1306_IO_GRAPHICS_CONTEXT_STRUCT_MEMBERS
-	uint32_t bus_address;
 	
 	io_event_t command_complete;
 	
@@ -413,7 +414,7 @@ ssd1306_io_graphics_context_initialise_twi (ssd1306_io_graphics_context_twi_t *t
 	if (io_socket_open (this->ssd1306_socket,IO_SOCKET_OPEN_CONNECT)) {
 		io_socket_t *twi = this->ssd1306_socket;
 
-		io_socket_open (twi,IO_SOCKET_OPEN_CONNECT);
+		//io_socket_open (twi,IO_SOCKET_OPEN_CONNECT);
 		
 		this->current_command = startup_commands;
 		this->end_of_command_sequence = startup_commands + SIZEOF(startup_commands);
@@ -480,7 +481,6 @@ mk_ssd1306_io_graphics_context_twi (
 	io_socket_t *ssd,
 	uint32_t pixel_width,
 	uint32_t pixel_height,
-	uint32_t bus_address,
 	uint32_t stack_length
 ) {
 	ssd1306_io_graphics_context_twi_t *this = io_byte_memory_allocate (
@@ -489,7 +489,6 @@ mk_ssd1306_io_graphics_context_twi (
 	
 	if (this) {
 		this->implementation = &ssd1306_graphics_context_twi_implementation;
-		this->bus_address = bus_address;
 		this->current_command = NULL;
 		
 		initialise_io_event (
@@ -501,7 +500,7 @@ mk_ssd1306_io_graphics_context_twi (
 		);
 		
 		io_socket_bind_inner (
-			ssd,def_io_u8_address(bus_address),&this->command_complete,NULL
+			ssd,io_invalid_address(),&this->command_complete,NULL
 		);
 
 		ssd1306_io_graphics_context_initialise_twi (this);
@@ -513,48 +512,19 @@ mk_ssd1306_io_graphics_context_twi (
 }
 
 #undef cast_to_ssd1306_context
-#endif /* IMPLEMENT_IO_COMPONENT_GRAPHICS_SSD1306 */
+#endif /* IMPLEMENT_IO_GRAPHICS */
 #endif
 /*
-------------------------------------------------------------------------------
-This software is available under 2 licenses -- choose whichever you prefer.
-------------------------------------------------------------------------------
-ALTERNATIVE A - MIT License
-Copyright (c) 2020 Gregor Bruce
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-------------------------------------------------------------------------------
-ALTERNATIVE B - Public Domain (www.unlicense.org)
-This is free and unencumbered software released into the public domain.
-Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
-software, either in source code form or as a compiled binary, for any purpose,
-commercial or non-commercial, and by any means.
-In jurisdictions that recognize copyright laws, the author or authors of this
-software dedicate any and all copyright interest in the software to the public
-domain. We make this dedication for the benefit of the public at large and to
-the detriment of our heirs and successors. We intend this dedication to be an
-overt act of relinquishment in perpetuity of all present and future rights to
-this software under copyright law.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-------------------------------------------------------------------------------
+Copyright 2020 Gregor Bruce
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT,
+OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
-
-
