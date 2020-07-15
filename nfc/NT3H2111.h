@@ -40,16 +40,43 @@ static EVENT_DATA io_socket_state_t nt3h2111_io_socket_state_closed;
 static EVENT_DATA io_socket_state_t nt3h2111_io_socket_state_open;
 
 io_socket_state_t const*
-nt3h2111_io_socket_state_closed_open (io_socket_t *socket,io_socket_open_flag_t flag) {
+nt3h2111_io_socket_state_closed_open (
+	io_socket_t *socket,io_socket_open_flag_t flag
+) {
 	return io_process_socket_state_closed_open_generic (
 		socket,flag,&nt3h2111_io_socket_state_open
 	);
+}
+
+io_socket_state_t const*
+nt3h2111_io_socket_state_exception (io_socket_t *socket,io_event_t *ex) {
+	io_process_socket_t *this = (io_process_socket_t*) socket;
+	io_event_t *ev = io_event_list_first_match_exception (
+		&this->event_subscriptions
+	);
+
+	if (ev) {
+		io_enqueue_event (io_socket_io (this),ev);
+	}
+
+#if 0
+	io_log (
+		io_socket_io (socket),
+		IO_INFO_LOG_LEVEL,
+		"%-*s%-*sexception\n",
+		DBP_FIELD1,"ntag",
+		DBP_FIELD2,socket->State->name
+	);
+#endif
+
+	return socket->State;
 }
 
 static EVENT_DATA io_socket_state_t nt3h2111_io_socket_state_closed = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
 	.name = "closed",
 	.open = nt3h2111_io_socket_state_closed_open,
+	.outer_exception_event = nt3h2111_io_socket_state_exception,
 };
 
 io_socket_state_t const*
@@ -93,6 +120,11 @@ nt3h2111_io_socket_state_open_outer_receive_event (io_socket_t *socket) {
 }
 
 io_socket_state_t const*
+nt3h2111_io_socket_state_open_enter (io_socket_t *socket) {
+	return socket->State;
+}
+
+io_socket_state_t const*
 nt3h2111_io_socket_state_open_close (io_socket_t *socket) {
 	return io_process_socket_state_open_close_generic (
 		socket,&nt3h2111_io_socket_state_closed
@@ -101,13 +133,17 @@ nt3h2111_io_socket_state_open_close (io_socket_t *socket) {
 
 static EVENT_DATA io_socket_state_t nt3h2111_io_socket_state_open = {
 	SPECIALISE_IO_SOCKET_STATE (&io_socket_state)
-	.name = "ntag open",
+	.name = "open",
+	.enter = nt3h2111_io_socket_state_open_enter,
 	.outer_receive_event = nt3h2111_io_socket_state_open_outer_receive_event,
+	.outer_exception_event = nt3h2111_io_socket_state_exception,
 	.close = nt3h2111_io_socket_state_open_close,
 };
 
 io_socket_t*
-nt3h2111_io_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) {
+nt3h2111_io_socket_initialise (
+	io_socket_t *socket,io_t *io,io_settings_t const *C
+) {
 //	nt3h2111_io_socket_t *this = (nt3h2111_io_socket_t*) socket;
 
 	io_process_socket_initialise (socket,io,C);
@@ -146,11 +182,16 @@ EVENT_DATA io_socket_implementation_t nt3h2111_io_socket_implementation = {
 #ifdef IMPLEMENT_VERIFY_IO_DEVICE
 #include <io_verify.h>
 
-uint32_t test_nt3h2111_io_socket_1_result;
-
 void
 test_nt3h2111_io_socket_1_rx_event (io_event_t *ev) {
-	test_nt3h2111_io_socket_1_result = 1;
+	uint32_t *r = ev->user_value;
+	*r = 1;
+}
+
+void
+test_nt3h2111_io_socket_1_rx_exception (io_event_t *ev) {
+	uint32_t *r = ev->user_value;
+	*r = 2;
 }
 
 TEST_BEGIN(test_nt3h2111_io_socket_1) {
@@ -159,10 +200,22 @@ TEST_BEGIN(test_nt3h2111_io_socket_1) {
 	if (VERIFY (ntag != NULL,NULL) && VERIFY (io_socket_is_closed(ntag),NULL)) {
 
 		if (VERIFY (io_socket_open (ntag,IO_SOCKET_OPEN_CONNECT),NULL)) {
-			io_event_t ev;
-			initialise_io_event (&ev,test_nt3h2111_io_socket_1_rx_event,NULL);
-			io_socket_bind_inner (ntag,io_invalid_address(),NULL,&ev);
-			test_nt3h2111_io_socket_1_result = 0;
+			volatile uint32_t test_result;
+			io_event_t ev,ex;
+			io_event_t * bind[] = {
+				&ev,&ex,NULL
+			};
+			initialise_io_data_available_event (
+				&ev,test_nt3h2111_io_socket_1_rx_event,(void*) &test_result
+			);
+
+			initialise_io_exception_event (
+				&ex,test_nt3h2111_io_socket_1_rx_exception,(void*) &test_result
+			);
+
+			io_socket_set_inner_binding (ntag,io_invalid_address(),bind);
+
+			test_result = 0;
 
 			// open is asynchronous
 			io_wait_for_all_events (TEST_IO);
@@ -184,7 +237,7 @@ TEST_BEGIN(test_nt3h2111_io_socket_1) {
 
 			}
 
-			while (test_nt3h2111_io_socket_1_result == 0);
+			while (test_result == 0);
 
 			io_socket_close (ntag);
 			io_wait_for_all_events (TEST_IO);

@@ -491,7 +491,7 @@ mk_ssd1306_io_graphics_context_twi (
 		this->implementation = &ssd1306_graphics_context_twi_implementation;
 		this->current_command = NULL;
 		
-		initialise_io_event (
+		initialise_io_transmit_available_event (
 			&this->command_complete,ssd1306_io_graphics_context_twi_command_complete,this
 		);
 		

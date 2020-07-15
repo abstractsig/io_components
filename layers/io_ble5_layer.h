@@ -76,11 +76,11 @@ io_ble5_socket_initialise (io_socket_t *socket,io_t *io,io_settings_t const *C) 
 
 	initialise_io_leaf_socket ((io_leaf_socket_t*) this,io,C);
 
-	initialise_io_event (
+	initialise_io_data_available_event (
 		&this->receive_event,io_ble5_socket_outer_receive_event,this
 	);
 
-	initialise_io_event (
+	initialise_io_transmit_available_event (
 		&this->transmit_event,io_ble5_socket_outer_transmit_event,this
 	);
 
