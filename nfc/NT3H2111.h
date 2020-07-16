@@ -144,7 +144,6 @@ io_socket_t*
 nt3h2111_io_socket_initialise (
 	io_socket_t *socket,io_t *io,io_settings_t const *C
 ) {
-//	nt3h2111_io_socket_t *this = (nt3h2111_io_socket_t*) socket;
 
 	io_process_socket_initialise (socket,io,C);
 
@@ -203,7 +202,7 @@ TEST_BEGIN(test_nt3h2111_io_socket_1) {
 			volatile uint32_t test_result;
 			io_event_t ev,ex;
 			io_event_t * bind[] = {
-				&ev,&ex,NULL
+				&ev,&ex
 			};
 			initialise_io_data_available_event (
 				&ev,test_nt3h2111_io_socket_1_rx_event,(void*) &test_result
@@ -213,7 +212,9 @@ TEST_BEGIN(test_nt3h2111_io_socket_1) {
 				&ex,test_nt3h2111_io_socket_1_rx_exception,(void*) &test_result
 			);
 
-			io_socket_set_inner_binding (ntag,io_invalid_address(),bind);
+			io_socket_set_inner_binding (
+				ntag,io_invalid_address(),bind,SIZEOF(bind)
+			);
 
 			test_result = 0;
 

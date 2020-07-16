@@ -144,7 +144,8 @@ io_twi_slave_adapter_new_message (io_socket_t *socket) {
 	return message;
 }
 
-EVENT_DATA io_socket_implementation_t io_twi_slave_adapter_implementation = {
+EVENT_DATA io_socket_implementation_t 
+io_twi_slave_adapter_implementation = {
 	SPECIALISE_IO_ADAPTER_SOCKET_IMPLEMENTATION (
 		&io_adapter_socket_implementation
 	)
