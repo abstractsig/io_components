@@ -16,27 +16,6 @@ typedef struct PACK_STRUCTURE io_ble5_socket {
 extern EVENT_DATA io_socket_implementation_t io_ble5_socket_implementation;
 
 
-typedef struct PACK_STRUCTURE io_ble5_packet {
-	IO_LAYER_STRUCT_PROPERTIES
-
-	uint32_t rssi;
-
-} io_ble5_packet_t;
-
-
-extern EVENT_DATA io_layer_implementation_t io_ble5_layer_implementation;
-io_layer_t* push_io_ble5_layer (io_encoding_t*);
-
-#define BLE5_ADV_IND				0x0	// LE1M phy
-#define BLE5_ADV_DIRECT_IND	0x1	// LE1M phy
-#define BLE5_ADV_NONCONN_IND	0x2	// LE1M phy
-#define BLE5_SCAN_REQ			0x3	// LE1M phy
-#define BLE5_AUX_SCAN_REQ		0x3	// all phys
-#define BLE5_SCAN_RESP			0x4	// LE1M phy
-#define BLE5_CONNECT_IND		0x5	// LE1M phy
-#define BLE5_AUX_CONNECT_REQ	0x5	// all phys
-#define BLE5_ADV_SCAN_IND		0x6	// LE1M phy
-
 typedef struct PACK_STRUCTURE {
 	struct PACK_STRUCTURE {
 		uint8_t RxAdd:1;
@@ -51,6 +30,33 @@ typedef struct PACK_STRUCTURE {
 
 #define ble5_packet_type(p)	(p)->flags.type
 #define ble5_packet_length(p)	(p)->length
+
+typedef struct PACK_STRUCTURE {
+	IO_LAYER_STRUCT_PROPERTIES
+
+	uint32_t rssi;
+
+} io_ble5_layer_t;
+
+
+extern EVENT_DATA io_layer_implementation_t io_ble5_layer_implementation;
+io_layer_t* push_io_ble5_layer (io_encoding_t*);
+
+INLINE_FUNCTION void*
+io_encoding_get_ble_layer (io_encoding_t *encoding) {
+	return io_encoding_get_layer (encoding,&io_ble5_layer_implementation);
+}
+
+#define BLE5_ADV_IND				0x0	// LE1M phy
+#define BLE5_ADV_DIRECT_IND	0x1	// LE1M phy
+#define BLE5_ADV_NONCONN_IND	0x2	// LE1M phy
+#define BLE5_SCAN_REQ			0x3	// LE1M phy
+#define BLE5_AUX_SCAN_REQ		0x3	// all phys
+#define BLE5_SCAN_RESP			0x4	// LE1M phy
+#define BLE5_CONNECT_IND		0x5	// LE1M phy
+#define BLE5_AUX_CONNECT_REQ	0x5	// all phys
+#define BLE5_ADV_SCAN_IND		0x6	// LE1M phy
+
 
 #ifdef IMPLEMENT_IO_BLE5
 //-----------------------------------------------------------------------------
@@ -100,16 +106,27 @@ free_io_ble5_layer (io_layer_t *layer,io_byte_memory_t *bm) {
 	io_byte_memory_free (bm,layer);
 }
 
+void
+ble5_layer_get_content (
+	io_layer_t *layer,io_encoding_t *encoding,uint8_t const **begin,uint8_t const **end
+) {
+	ble5_packet_t *packet = io_layer_get_byte_stream (layer,encoding);
+	*begin = packet->payload;
+	*end = packet->payload + packet->length;
+//	*begin = *end = NULL;
+}
+
 EVENT_DATA io_layer_implementation_t
 io_ble5_layer_implementation = {
 	SPECIALISE_IO_LAYER_IMPLEMENTATION (&io_layer_implementation)
 	.free = free_io_ble5_layer,
+	.get_content = ble5_layer_get_content,
 };
 
 io_layer_t*
 mk_ble5_layer (io_byte_memory_t *bm,io_encoding_t *packet) {
-	io_ble5_packet_t *this = io_byte_memory_allocate (
-		bm,sizeof(io_ble5_packet_t)
+	io_ble5_layer_t *this = io_byte_memory_allocate (
+		bm,sizeof(io_ble5_layer_t)
 	);
 	if (this) {
 		this->implementation = &io_ble5_layer_implementation;
